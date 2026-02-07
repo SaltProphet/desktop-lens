@@ -7,12 +7,17 @@ from gi.repository import Gtk, Gdk, Gst, GLib
 import json
 import os
 import sys
+import argparse
+import subprocess
 
 CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
 
 class DesktopLens(Gtk.Window):
     def __init__(self):
         super().__init__()
+        # Set window icon and WM_CLASS early for proper desktop integration
+        self.set_wmclass("desktop-lens", "DesktopLens")
+        self.set_icon_with_fallback()
         self.frozen = False
         self.frozen_pixbuf = None
         self.load_config()
@@ -23,6 +28,27 @@ class DesktopLens(Gtk.Window):
         # Set xid after the window is realized to exclude it from capture
         self.connect("realize", self.on_window_realized)
         
+    def set_icon_with_fallback(self):
+        """Set window icon with fallback if asset is missing"""
+        # Try multiple possible icon locations
+        icon_paths = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.svg"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.png"),
+            "/usr/share/icons/hicolor/scalable/apps/desktop-lens.svg",
+            "/usr/share/pixmaps/desktop-lens.svg"
+        ]
+        
+        for icon_path in icon_paths:
+            if os.path.exists(icon_path):
+                try:
+                    self.set_icon_from_file(icon_path)
+                    print(f"Loaded icon from: {icon_path}")
+                    return
+                except Exception as e:
+                    print(f"Failed to load icon from {icon_path}: {e}")
+        
+        print("Warning: Could not load application icon")
+    
     def load_config(self):
         self.config = {
             "x": 0, 
@@ -502,6 +528,72 @@ class DesktopLens(Gtk.Window):
             self.pipeline.set_state(Gst.State.NULL)
             self.pipeline = None
 
+def install_desktop_integration():
+    """Install desktop entry and icon for system integration"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    icon_source = os.path.join(script_dir, "assets", "icon.svg")
+    
+    # Create assets directory if it doesn't exist
+    assets_dir = os.path.join(script_dir, "assets")
+    os.makedirs(assets_dir, exist_ok=True)
+    
+    # Create icon if it doesn't exist
+    if not os.path.exists(icon_source):
+        icon_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect x="10" y="20" width="80" height="60" rx="5" fill="#333" stroke="#fff" stroke-width="2"/>
+  <circle cx="50" cy="50" r="15" fill="none" stroke="#fff" stroke-width="2"/>
+  <line x1="10" y1="50" x2="90" y2="50" stroke="#fff" stroke-width="1" stroke-dasharray="4"/>
+</svg>"""
+        with open(icon_source, 'w') as f:
+            f.write(icon_svg)
+        print(f"Created icon at: {icon_source}")
+    
+    # Create .desktop file
+    desktop_dir = os.path.expanduser("~/.local/share/applications")
+    os.makedirs(desktop_dir, exist_ok=True)
+    
+    desktop_file_path = os.path.join(desktop_dir, "desktop-lens.desktop")
+    desktop_content = f"""[Desktop Entry]
+Name=Desktop Lens
+Comment=Correct TV Overscan Viewport
+Exec=python3 {os.path.join(script_dir, "desktop-lens.py")}
+Icon={icon_source}
+Terminal=false
+Type=Application
+Categories=Utility;Video;AudioVideo;
+StartupNotify=true
+Keywords=overscan;tv;mirror;screen;display
+"""
+    
+    with open(desktop_file_path, 'w') as f:
+        f.write(desktop_content)
+    
+    # Set appropriate permissions for .desktop file
+    os.chmod(desktop_file_path, 0o644)
+    
+    print(f"Desktop integration installed successfully!")
+    print(f"  - Desktop file: {desktop_file_path}")
+    print(f"  - Icon: {icon_source}")
+    print("\nYou can now find 'Desktop Lens' in your application menu.")
+    print("You may need to log out and back in for the icon to appear in the menu.")
+    
+    # Update desktop database
+    try:
+        subprocess.run(["update-desktop-database", desktop_dir], 
+                      stdout=subprocess.DEVNULL, 
+                      stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        pass  # update-desktop-database not available, that's okay
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Desktop Lens - TV Overscan Correction Tool")
+    parser.add_argument("--install", action="store_true", 
+                       help="Install desktop integration (menu entry and icon)")
+    args = parser.parse_args()
+    
+    if args.install:
+        install_desktop_integration()
+        sys.exit(0)
+    
     app = DesktopLens()
     Gtk.main()
