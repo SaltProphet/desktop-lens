@@ -562,14 +562,14 @@ Terminal=false
 Type=Application
 Categories=Utility;Video;AudioVideo;
 StartupNotify=true
-Keywords=overscan;tv;mirror;screen;display;
+Keywords=overscan;tv;mirror;screen;display
 """
     
     with open(desktop_file_path, 'w') as f:
         f.write(desktop_content)
     
-    # Make desktop file executable
-    os.chmod(desktop_file_path, 0o755)
+    # Set appropriate permissions for .desktop file
+    os.chmod(desktop_file_path, 0o644)
     
     print(f"Desktop integration installed successfully!")
     print(f"  - Desktop file: {desktop_file_path}")
