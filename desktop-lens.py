@@ -28,25 +28,41 @@ class DesktopLens(Gtk.Window):
                 pass
     
     def save_config(self):
-        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-        x, y = self.get_position()
-        self.config["x"] = x
-        self.config["y"] = y
-        self.config["scale"] = self.scale_value
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(self.config, f)
+        try:
+            os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+            x, y = self.get_position()
+            self.config["x"] = x
+            self.config["y"] = y
+            self.config["scale"] = self.scale_value
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(self.config, f)
+        except (IOError, OSError):
+            pass
     
     def init_gstreamer(self):
         Gst.init(None)
         self.pipeline = Gst.Pipeline.new("desktop-lens")
         
         self.src = Gst.ElementFactory.make("ximagesrc", "src")
+        if not self.src:
+            sys.exit("Failed to create ximagesrc element")
         self.src.set_property("use-damage", False)
         
         videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
+        if not videoconvert:
+            sys.exit("Failed to create videoconvert element")
+            
         self.videoscale = Gst.ElementFactory.make("videoscale", "scale")
+        if not self.videoscale:
+            sys.exit("Failed to create videoscale element")
+            
         self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
+        if not self.capsfilter:
+            sys.exit("Failed to create capsfilter element")
+            
         self.appsink = Gst.ElementFactory.make("appsink", "sink")
+        if not self.appsink:
+            sys.exit("Failed to create appsink element")
         
         self.appsink.set_property("emit-signals", True)
         self.appsink.set_property("sync", False)
@@ -66,7 +82,9 @@ class DesktopLens(Gtk.Window):
         self.scale_value = self.config["scale"]
         self.update_videoscale_caps()
         
-        self.pipeline.set_state(Gst.State.PLAYING)
+        ret = self.pipeline.set_state(Gst.State.PLAYING)
+        if ret == Gst.StateChangeReturn.FAILURE:
+            sys.exit("Failed to start GStreamer pipeline")
         
     def update_videoscale_caps(self):
         screen = Gdk.Screen.get_default()
