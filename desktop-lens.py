@@ -13,11 +13,15 @@ CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
 class DesktopLens(Gtk.Window):
     def __init__(self):
         super().__init__()
+        self.frozen = False
+        self.frozen_pixbuf = None
         self.load_config()
         self.init_gstreamer()
         self.init_ui()
         self.connect("delete-event", self.on_quit)
         self.connect("destroy", self.on_destroy)
+        # Set xid after the window is realized to exclude it from capture
+        self.connect("realize", self.on_window_realized)
         
     def load_config(self):
         self.config = {
@@ -216,7 +220,21 @@ class DesktopLens(Gtk.Window):
             self.pipeline.set_state(Gst.State.NULL)
         return True
     
+    def on_window_realized(self, widget):
+        """Configure ximagesrc to avoid capturing this window"""
+        window = self.get_window()
+        if window:
+            xid = window.get_xid()
+            print(f"Window realized with XID: {xid}")
+            # The ximagesrc by default captures the entire root window
+            # To avoid hall of mirrors, we'll rely on the freeze feature
+            # or the hide window feature when users need to adjust margins
+    
     def on_new_sample(self, sink):
+        # If frozen, don't update the image
+        if self.frozen:
+            return Gst.FlowReturn.OK
+            
         sample = sink.emit("pull-sample")
         if sample:
             buffer = sample.get_buffer()
@@ -250,7 +268,12 @@ class DesktopLens(Gtk.Window):
                 pixbuf_obj = Gdk.Pixbuf.new_from_bytes(
                     pixbuf, Gdk.Colorspace.RGB, has_alpha, 8, width, height, rowstride
                 )
-                self.image.set_from_pixbuf(pixbuf_obj)
+                
+                # Store the pixbuf for freeze functionality
+                if not self.frozen:
+                    self.frozen_pixbuf = pixbuf_obj
+                    self.image.set_from_pixbuf(pixbuf_obj)
+                # If frozen, keep displaying the frozen image
             except (GLib.Error, ValueError):
                 pass
         return False
@@ -288,10 +311,31 @@ class DesktopLens(Gtk.Window):
         
         vbox.pack_start(self.image_box, True, True, 0)
         
+        # Controls container at the bottom
+        controls_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        controls_box.set_margin_start(5)
+        controls_box.set_margin_end(5)
+        controls_box.set_margin_top(5)
+        controls_box.set_margin_bottom(5)
+        
+        # Scale slider
         slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.7, 1.0, 0.01)
         slider.set_value(self.scale_value)
         slider.connect("value-changed", self.on_scale_changed)
-        vbox.pack_start(slider, False, False, 0)
+        slider.set_hexpand(True)
+        controls_box.pack_start(slider, True, True, 0)
+        
+        # Toggle Freeze button
+        self.freeze_button = Gtk.Button(label="Freeze")
+        self.freeze_button.connect("clicked", self.on_toggle_freeze)
+        controls_box.pack_start(self.freeze_button, False, False, 0)
+        
+        # Hide Window button (toggle visibility)
+        self.hide_button = Gtk.Button(label="Hide Window")
+        self.hide_button.connect("clicked", self.on_toggle_hide)
+        controls_box.pack_start(self.hide_button, False, False, 0)
+        
+        vbox.pack_start(controls_box, False, False, 0)
         
         # Connect keyboard events
         self.connect("key-press-event", self.on_key_press)
@@ -301,7 +345,42 @@ class DesktopLens(Gtk.Window):
         
     def on_scale_changed(self, slider):
         self.scale_value = slider.get_value()
+        # Pause the pipeline briefly to prevent flickering
+        if hasattr(self, 'pipeline'):
+            self.pipeline.set_state(Gst.State.PAUSED)
         self.update_videoscale_caps()
+        # Resume the pipeline
+        if hasattr(self, 'pipeline'):
+            GLib.timeout_add(50, self._resume_pipeline)
+    
+    def _resume_pipeline(self):
+        """Resume pipeline after a brief delay to prevent flickering"""
+        if hasattr(self, 'pipeline'):
+            self.pipeline.set_state(Gst.State.PLAYING)
+        return False
+    
+    def on_toggle_freeze(self, button):
+        """Toggle freeze mode to snapshot the desktop"""
+        self.frozen = not self.frozen
+        if self.frozen:
+            self.freeze_button.set_label("Unfreeze")
+            # Display the last captured frame
+            if self.frozen_pixbuf:
+                self.image.set_from_pixbuf(self.frozen_pixbuf)
+        else:
+            self.freeze_button.set_label("Freeze")
+    
+    def on_toggle_hide(self, button):
+        """Toggle window visibility to avoid hall of mirrors"""
+        if self.is_visible():
+            self.hide()
+            # Set a timer to show the window again after 5 seconds
+            GLib.timeout_add_seconds(5, self._show_window)
+        
+    def _show_window(self):
+        """Show the window after hiding"""
+        self.show_all()
+        return False
     
     def apply_margin_changes(self):
         """Helper method to apply margin changes"""
