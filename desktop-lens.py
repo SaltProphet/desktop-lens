@@ -15,6 +15,7 @@ from pynput import keyboard
 from threading import Thread
 
 CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
+AUTO_SHOW_DELAY_SECONDS = 5  # Auto-show window after hiding via hotkey or button
 
 class DesktopLens(Gtk.Window):
     def __init__(self):
@@ -562,9 +563,9 @@ class DesktopLens(Gtk.Window):
         """Toggle window visibility to avoid hall of mirrors"""
         if self.is_visible():
             self.hide()
-            # Auto-show after 5 seconds to allow user to see the result
+            # Auto-show after configured delay to allow user to see the result
             # without having to manually re-launch the application
-            GLib.timeout_add_seconds(5, self._show_window)
+            GLib.timeout_add_seconds(AUTO_SHOW_DELAY_SECONDS, self._show_window)
         
     def _show_window(self):
         """Show the window after hiding"""
@@ -646,8 +647,8 @@ class DesktopLens(Gtk.Window):
         if self.is_visible():
             self.hide()
             print("Window hidden via hotkey")
-            # Auto-show after 5 seconds
-            GLib.timeout_add_seconds(5, self._show_window_from_hotkey)
+            # Auto-show after configured delay
+            GLib.timeout_add_seconds(AUTO_SHOW_DELAY_SECONDS, self._show_window_from_hotkey)
         else:
             self.show_all()
             print("Window shown via hotkey")
@@ -655,7 +656,7 @@ class DesktopLens(Gtk.Window):
     def _show_window_from_hotkey(self):
         """Show the window after hiding via hotkey"""
         self.show_all()
-        print("Window auto-shown after 5 seconds")
+        print(f"Window auto-shown after {AUTO_SHOW_DELAY_SECONDS} seconds")
         return False
     
     def init_global_hotkeys(self):
