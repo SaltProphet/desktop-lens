@@ -73,3 +73,5 @@ See [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) for detailed performance analys
 
 ## Overscan Correction
 The viewport is automatically centered with configurable margins to compensate for TV overscan. The default margins are 100px on all sides, but can be adjusted using keyboard shortcuts to perfectly align the viewport with your TV's visible area. The aspect ratio is maintained at 16:9 to prevent UI distortion.
+
+See [OVERSCAN_GUIDE.md](OVERSCAN_GUIDE.md) for detailed setup instructions and troubleshooting.
