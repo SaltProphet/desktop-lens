@@ -641,6 +641,23 @@ class DesktopLens(Gtk.Window):
         """Handle ghost mode button click"""
         self.toggle_ghost_mode()
     
+    def toggle_visibility(self):
+        """Toggle window visibility (for Ctrl+Alt+H hotkey)"""
+        if self.is_visible():
+            self.hide()
+            print("Window hidden via hotkey")
+            # Auto-show after 5 seconds
+            GLib.timeout_add_seconds(5, self._show_window_from_hotkey)
+        else:
+            self.show_all()
+            print("Window shown via hotkey")
+    
+    def _show_window_from_hotkey(self):
+        """Show the window after hiding via hotkey"""
+        self.show_all()
+        print("Window auto-shown after 5 seconds")
+        return False
+    
     def init_global_hotkeys(self):
         """Initialize global hotkey listener using pynput"""
         # Track currently pressed keys (accessed from pynput thread)
@@ -659,9 +676,12 @@ class DesktopLens(Gtk.Window):
                 
                 if ctrl_pressed and alt_pressed:
                     # Check for G or H key
-                    if hasattr(key, 'char') and key.char and key.char.lower() in ('g', 'h'):
-                        # Use GLib.idle_add to safely call GTK methods from thread
+                    if hasattr(key, 'char') and key.char and key.char.lower() == 'g':
+                        # Ctrl+Alt+G: Toggle Ghost Mode
                         GLib.idle_add(self.toggle_ghost_mode)
+                    elif hasattr(key, 'char') and key.char and key.char.lower() == 'h':
+                        # Ctrl+Alt+H: Toggle Visibility
+                        GLib.idle_add(self.toggle_visibility)
             except AttributeError:
                 pass
         
@@ -673,7 +693,7 @@ class DesktopLens(Gtk.Window):
         # Start keyboard listener in a daemon thread (daemon must be set before start)
         self.keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release, daemon=True)
         self.keyboard_listener.start()
-        print("Global hotkey listener started (Ctrl+Alt+G or Ctrl+Alt+H to toggle Ghost Mode)")
+        print("Global hotkey listener started (Ctrl+Alt+G for Ghost Mode, Ctrl+Alt+H for Visibility)")
     
     def stop_global_hotkeys(self):
         """Stop the global hotkey listener"""
