@@ -72,18 +72,27 @@ Adjust margins in 5px increments using keyboard shortcuts:
 2. The application starts with 100px margins on all sides
 3. Position the window to fill your TV screen
 
+### Avoiding Hall of Mirrors Effect
+The "hall of mirrors" effect occurs when the application captures its own window, creating infinite recursion. Use these features to prevent it:
+
+1. **Freeze Button**: Click "Freeze" to snapshot the current desktop view. This allows you to adjust margins without the infinity mirror interference.
+2. **Hide Window Button**: Click "Hide Window" to temporarily hide the application for 5 seconds, allowing capture without self-recursion.
+3. **Crop Region Button**: Click "Crop" to limit capture to the primary monitor. This is especially useful on multi-monitor setups where the application window might be on a secondary monitor.
+
 ### Fine-Tuning for Your TV
-1. Observe which edges are cut off by overscan
-2. Use keyboard shortcuts to adjust margins:
+1. **First, click "Freeze" to avoid the hall of mirrors effect during adjustment**
+2. Observe which edges are cut off by overscan
+3. Use keyboard shortcuts to adjust margins:
    - If top is cut off: Press `Ctrl+Down` repeatedly to add top margin
    - If left is cut off: Press `Ctrl+Right` repeatedly to add left margin
    - If bottom is cut off: Press `Shift+Down` repeatedly to add bottom margin
    - If right is cut off: Press `Shift+Right` repeatedly to add right margin
-3. Adjust until the entire viewport is visible on your TV
-4. Close the application - settings are automatically saved
+4. Click "Unfreeze" to see the live view with your adjustments
+5. Repeat as needed until the entire viewport is visible on your TV
+6. Close the application - settings are automatically saved
 
 ### Adjusting Scale
-Use the slider at the bottom to scale the desktop view (0.7x to 1.0x) while maintaining the 16:9 aspect ratio.
+Use the slider at the bottom to scale the desktop view (0.7x to 1.0x) while maintaining the 16:9 aspect ratio. The scale adjustment has been optimized to prevent flickering by briefly pausing the pipeline during updates.
 
 ## Technical Details
 
@@ -101,7 +110,11 @@ Window
 └── VBox
     ├── ImageBox (centered with margins)
     │   └── Image (video viewport)
-    └── Scale slider
+    └── Controls Box (horizontal)
+        ├── Scale slider
+        ├── Freeze button
+        ├── Hide Window button
+        └── Crop Region button
 ```
 
 The `ImageBox` uses GTK margin properties (`set_margin_top`, `set_margin_bottom`, `set_margin_start`, `set_margin_end`) and alignment properties (`set_halign(CENTER)`, `set_valign(CENTER)`) to create the centered layout.
@@ -111,6 +124,13 @@ To prevent errors, the viewport maintains minimum dimensions of 320x180 pixels e
 
 ## Troubleshooting
 
+### Hall of Mirrors Effect
+If you see the application capturing itself in an infinite loop:
+1. Immediately click the **Freeze** button to stop the recursion
+2. Reposition the application window to a different location
+3. Consider using the **Crop Region** feature to limit capture to your primary monitor
+4. Alternatively, use the **Hide Window** button when making adjustments
+
 ### Margins too large for screen
 If your margins exceed the screen dimensions, the viewport will be constrained to minimum size (320x180). Reduce margins using the keyboard shortcuts.
 
@@ -119,6 +139,12 @@ The 16:9 aspect ratio is enforced automatically. If content appears distorted, c
 1. Your source desktop resolution is compatible
 2. The scale factor is set appropriately
 3. Margins haven't forced the viewport too small
+
+### Flickering when adjusting scale
+The scale slider now pauses and resumes the GStreamer pipeline to prevent flickering. If you still experience issues:
+1. Try adjusting the scale in smaller increments
+2. Check your system's graphics driver status
+3. Verify hardware acceleration is working (check terminal output on launch)
 
 ### Keyboard shortcuts not working
 Ensure the desktop-lens window has focus. The window must accept focus for keyboard events to work (this is now enabled by default).
