@@ -31,7 +31,10 @@ class DesktopLens(Gtk.Window):
             "margin_top": 100,
             "margin_bottom": 100,
             "margin_left": 100,
-            "margin_right": 100
+            "margin_right": 100,
+            "crop_to_region": False,
+            "capture_endx": 0,
+            "capture_endy": 0
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -51,6 +54,9 @@ class DesktopLens(Gtk.Window):
             self.config["margin_bottom"] = self.margin_bottom
             self.config["margin_left"] = self.margin_left
             self.config["margin_right"] = self.margin_right
+            self.config["crop_to_region"] = getattr(self, 'crop_to_region', False)
+            self.config["capture_endx"] = getattr(self, 'capture_endx', 0)
+            self.config["capture_endy"] = getattr(self, 'capture_endy', 0)
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(self.config, f, indent=2)
         except (IOError, OSError):
@@ -72,6 +78,16 @@ class DesktopLens(Gtk.Window):
         if not self.src:
             sys.exit("Failed to create ximagesrc element. Ensure gstreamer1.0-plugins-good is installed.")
         self.src.set_property("use-damage", False)
+        
+        # Apply capture region cropping if configured
+        self.crop_to_region = self.config.get("crop_to_region", False)
+        self.capture_endx = self.config.get("capture_endx", 0)
+        self.capture_endy = self.config.get("capture_endy", 0)
+        
+        if self.crop_to_region and self.capture_endx > 0 and self.capture_endy > 0:
+            self.src.set_property("endx", self.capture_endx)
+            self.src.set_property("endy", self.capture_endy)
+            print(f"Cropping capture to region: 0,0 to {self.capture_endx},{self.capture_endy}")
         
         hw_type = self.detect_hw_acceleration()
         
@@ -335,6 +351,13 @@ class DesktopLens(Gtk.Window):
         self.hide_button.connect("clicked", self.on_toggle_hide)
         controls_box.pack_start(self.hide_button, False, False, 0)
         
+        # Crop Region button (toggle capture area cropping)
+        self.crop_button = Gtk.Button(label="Crop: OFF")
+        self.crop_button.connect("clicked", self.on_toggle_crop)
+        controls_box.pack_start(self.crop_button, False, False, 0)
+        if self.crop_to_region:
+            self.crop_button.set_label("Crop: ON")
+        
         vbox.pack_start(controls_box, False, False, 0)
         
         # Connect keyboard events
@@ -381,6 +404,36 @@ class DesktopLens(Gtk.Window):
         """Show the window after hiding"""
         self.show_all()
         return False
+    
+    def on_toggle_crop(self, button):
+        """Toggle capture region cropping to avoid hall of mirrors"""
+        self.crop_to_region = not self.crop_to_region
+        
+        if self.crop_to_region:
+            # Get the primary monitor dimensions
+            screen = Gdk.Screen.get_default()
+            display = screen.get_display()
+            monitor = display.get_primary_monitor()
+            if monitor:
+                geometry = monitor.get_geometry()
+                self.capture_endx = geometry.width
+                self.capture_endy = geometry.height
+                self.src.set_property("endx", self.capture_endx)
+                self.src.set_property("endy", self.capture_endy)
+                self.crop_button.set_label("Crop: ON")
+                print(f"Enabled region cropping to {self.capture_endx}x{self.capture_endy}")
+            else:
+                # Fallback if we can't get monitor info
+                self.crop_to_region = False
+                print("Could not determine monitor dimensions")
+        else:
+            # Reset to full screen capture
+            self.src.set_property("endx", 0)
+            self.src.set_property("endy", 0)
+            self.capture_endx = 0
+            self.capture_endy = 0
+            self.crop_button.set_label("Crop: OFF")
+            print("Disabled region cropping")
     
     def apply_margin_changes(self):
         """Helper method to apply margin changes"""
