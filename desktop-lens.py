@@ -11,10 +11,15 @@ import sys
 import argparse
 import subprocess
 import cairo
+import platform
 from pynput import keyboard
 from threading import Thread
 
-CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
+# Platform detection
+IS_WINDOWS = platform.system() == 'Windows'
+IS_LINUX = platform.system() == 'Linux'
+
+CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json") if not IS_WINDOWS else os.path.expanduser("~/AppData/Local/desktop-lens.json")
 AUTO_SHOW_DELAY_SECONDS = 5  # Auto-show window after hiding via hotkey or button
 
 class DesktopLens(Gtk.Window):
@@ -114,17 +119,33 @@ class DesktopLens(Gtk.Window):
         Gst.init(None)
         self.pipeline = Gst.Pipeline.new("desktop-lens")
         
-        self.src = Gst.ElementFactory.make("ximagesrc", "src")
-        if not self.src:
-            sys.exit("Failed to create ximagesrc element. Ensure gstreamer1.0-plugins-good is installed.")
-        self.src.set_property("use-damage", False)
+        # Use platform-specific screen capture source
+        if IS_WINDOWS:
+            # Try Windows screen capture sources in order of preference
+            screen_sources = ["gdiscreencapsrc", "dx9screencapsrc", "d3d11screencapturesrc"]
+            self.src = None
+            for source in screen_sources:
+                self.src = Gst.ElementFactory.make(source, "src")
+                if self.src:
+                    print(f"Using {source} for Windows screen capture")
+                    break
+            
+            if not self.src:
+                sys.exit("Failed to create Windows screen capture element. Ensure GStreamer plugins are installed.\n"
+                        "Install gstreamer with: winget install GStreamer.GStreamer")
+        else:
+            # Linux: use ximagesrc
+            self.src = Gst.ElementFactory.make("ximagesrc", "src")
+            if not self.src:
+                sys.exit("Failed to create ximagesrc element. Ensure gstreamer1.0-plugins-good is installed.")
+            self.src.set_property("use-damage", False)
         
-        # Apply capture region cropping if configured
+        # Apply capture region cropping if configured (Linux only)
         self.crop_to_region = self.config.get("crop_to_region", False)
         self.capture_endx = self.config.get("capture_endx", 0)
         self.capture_endy = self.config.get("capture_endy", 0)
         
-        if self.crop_to_region and self.capture_endx > 0 and self.capture_endy > 0:
+        if not IS_WINDOWS and self.crop_to_region and self.capture_endx > 0 and self.capture_endy > 0:
             self.src.set_property("endx", self.capture_endx)
             self.src.set_property("endy", self.capture_endy)
             print(f"Cropping capture to region: 0,0 to {self.capture_endx},{self.capture_endy}")
@@ -347,29 +368,35 @@ class DesktopLens(Gtk.Window):
         return True
     
     def on_window_realized(self, widget):
-        """Configure ximagesrc to avoid capturing this window and apply ghost mode if enabled"""
+        """Configure screen capture to avoid capturing this window and apply ghost mode if enabled"""
         # If using VideoOverlay mode, set the window handle
         if self.use_video_overlay and hasattr(self, 'videosink') and hasattr(self, 'drawing_area'):
             drawing_window = self.drawing_area.get_window()
-            if drawing_window:
+            if drawing_window and not IS_WINDOWS:
                 xid = drawing_window.get_xid()
                 self.videosink.set_window_handle(xid)
                 print(f"VideoOverlay: Set window handle to XID {xid}")
         
         window = self.get_window()
         if window:
-            xid = window.get_xid()
-            print(f"Window realized with XID: {xid}")
-            
-            # Set the xid property on ximagesrc to exclude this window from capture
-            # This prevents the hall of mirrors effect
-            try:
-                self.src.set_property("xid", xid)
-                print(f"Set ximagesrc xid property to {xid} to exclude window from capture")
-            except Exception as e:
-                print(f"Warning: Could not set xid property on ximagesrc: {e}")
-                print("Note: XID exclusion may not be supported by your ximagesrc version or compositor")
-                # Fallback: Use opacity approach during capture
+            # XID exclusion only works on Linux/X11
+            if not IS_WINDOWS:
+                xid = window.get_xid()
+                print(f"Window realized with XID: {xid}")
+                
+                # Set the xid property on ximagesrc to exclude this window from capture
+                # This prevents the hall of mirrors effect
+                try:
+                    self.src.set_property("xid", xid)
+                    print(f"Set ximagesrc xid property to {xid} to exclude window from capture")
+                except Exception as e:
+                    print(f"Warning: Could not set xid property on ximagesrc: {e}")
+                    print("Note: XID exclusion may not be supported by your ximagesrc version or compositor")
+                    # Fallback: Use opacity approach during capture
+                    self.use_opacity_fallback = True
+            else:
+                # On Windows, always use opacity fallback approach
+                print("Windows platform: Using opacity fallback for hall of mirrors prevention")
                 self.use_opacity_fallback = True
             
             # Apply ghost mode if it was enabled in config

@@ -1,14 +1,22 @@
 # desktop-lens
-A Python/GStreamer tool to correct TV overscan by creating a resizable, hardware-accelerated viewport mirror of the Linux desktop.
+A Python/GStreamer tool to correct TV overscan by creating a resizable, hardware-accelerated viewport mirror of your desktop.
+
+**Now with Windows support!** 🎉
+
+## Platform Support
+- **Linux**: Native support with X11 (ximagesrc)
+- **Windows**: Screen capture via GStreamer DirectShow plugins
+- macOS: Not yet supported (contributions welcome!)
 
 ## Features
-- Captures the root X11 window using ximagesrc
-- Hardware-accelerated scaling (VAAPI/OpenGL) with software fallback
-- GStreamer pipeline: ximagesrc → (hw-accelerated scaling) → appsink
+- Cross-platform screen capture (X11 on Linux, DirectShow on Windows)
+- Hardware-accelerated scaling (VAAPI/OpenGL/DirectX) with software fallback
+- GStreamer pipeline with platform-specific capture sources
 - Borderless, always-on-top GTK3 window
 - Dynamic scale adjustment via slider (0.7x to 1.0x)
 - **Configurable margins** to compensate for TV overscan (default: 100px all sides)
 - **16:9 aspect ratio** maintained automatically
+- **Global hotkeys** for ghost mode and visibility toggle
 - **Keyboard shortcuts** for fine-tuning viewport position
 - JSON persistence for window position, scale factor, and margins
 - Graceful GStreamer shutdown with proper resource cleanup
@@ -16,13 +24,15 @@ A Python/GStreamer tool to correct TV overscan by creating a resizable, hardware
 
 ## Requirements
 - Python 3
-- GStreamer 1.0 and plugins (gstreamer1.0-plugins-base, gstreamer1.0-plugins-good)
+- GStreamer 1.0 and plugins
 - GTK 3
 - PyGObject
 
 ## Installation
+
+### Linux (Debian/Ubuntu)
 ```bash
-# Install system dependencies (Debian/Ubuntu)
+# Install system dependencies
 sudo apt-get install python3 python3-pip gstreamer1.0-tools \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
   gir1.2-gtk-3.0 gir1.2-gstreamer-1.0
@@ -37,6 +47,26 @@ sudo apt-get install gstreamer1.0-gl
 # Install Python dependencies
 pip3 install -r requirements.txt
 ```
+
+### Windows
+
+See the detailed [Windows Installation Guide](WINDOWS_INSTALL.md) for complete instructions.
+
+**Quick start:**
+1. Install Python 3.x from [python.org](https://www.python.org/)
+2. Install GTK3 runtime (via MSYS2 or official installer)
+3. Install GStreamer from [gstreamer.freedesktop.org](https://gstreamer.freedesktop.org/download/)
+4. Run: `pip install -r requirements.txt`
+5. Run: `python desktop-lens.py`
+
+Or build a Windows executable:
+```bash
+# Run the build script
+build_windows.bat
+
+# Executable will be at: dist\DesktopLens\DesktopLens.exe
+```
+
 
 ## Usage
 ```bash
@@ -78,13 +108,27 @@ See [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) for detailed performance analys
 The application provides multiple automatic and manual ways to prevent the "hall of mirrors" effect (when the application captures itself):
 
 **Automatic Prevention:**
-1. **XID Exclusion**: The application automatically sets its window ID (XID) on ximagesrc to exclude itself from capture
-2. **Opacity Fallback**: If XID exclusion is not supported by your compositor, the window automatically becomes nearly transparent (opacity 0.001) during frame capture, then restores to full opacity
+1. **XID Exclusion** (Linux only): The application automatically sets its window ID (XID) on ximagesrc to exclude itself from capture
+2. **Opacity Fallback** (Linux/Windows): If XID exclusion is not supported, the window automatically becomes nearly transparent (opacity 0.001) during frame capture, then restores to full opacity
 
 **Manual Controls:**
 1. **Freeze button/Space key**: Snapshot the desktop and pause updates, allowing you to adjust margins without recursion
 2. **Hide Window button**: Temporarily hide the application window for 5 seconds
-3. **Crop Region button**: Limit capture to the primary monitor area, useful for multi-monitor setups
+3. **Crop Region button** (Linux only): Limit capture to the primary monitor area, useful for multi-monitor setups
+
+## Platform-Specific Notes
+
+### Linux
+- Uses `ximagesrc` for X11 screen capture
+- Supports hardware acceleration via VAAPI and OpenGL
+- XID-based window exclusion prevents capturing itself
+- Region cropping available for multi-monitor setups
+
+### Windows
+- Uses `gdiscreencapsrc`, `dx9screencapsrc`, or `d3d11screencapturesrc` (automatically detected)
+- Configuration stored in `%APPDATA%\Local\desktop-lens.json`
+- Uses opacity-based approach for hall of mirrors prevention (XID not available on Windows)
+- See [WINDOWS_INSTALL.md](WINDOWS_INSTALL.md) for detailed installation instructions
 
 ## Overscan Correction
 The viewport is automatically centered with configurable margins to compensate for TV overscan. The default margins are 100px on all sides, but can be adjusted using keyboard shortcuts to perfectly align the viewport with your TV's visible area. The aspect ratio is maintained at 16:9 to prevent UI distortion.
