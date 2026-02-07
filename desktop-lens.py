@@ -10,6 +10,8 @@ import sys
 import argparse
 import subprocess
 import cairo
+from pynput import keyboard
+from threading import Thread
 
 CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
 
@@ -32,6 +34,8 @@ class DesktopLens(Gtk.Window):
         self.connect("destroy", self.on_destroy)
         # Set xid after the window is realized to exclude it from capture
         self.connect("realize", self.on_window_realized)
+        # Start global hotkey listener in a separate thread
+        self.init_global_hotkeys()
         
     def set_icon_with_fallback(self):
         """Set window icon with fallback if asset is missing"""
@@ -607,6 +611,50 @@ class DesktopLens(Gtk.Window):
         """Handle ghost mode button click"""
         self.toggle_ghost_mode()
     
+    def init_global_hotkeys(self):
+        """Initialize global hotkey listener using pynput"""
+        # Track currently pressed keys
+        self.current_keys = set()
+        
+        def on_press(key):
+            """Handle key press events"""
+            try:
+                # Add key to currently pressed set
+                self.current_keys.add(key)
+                
+                # Check for Ctrl+Alt+G or Ctrl+Alt+H
+                ctrl_pressed = keyboard.Key.ctrl_l in self.current_keys or keyboard.Key.ctrl_r in self.current_keys
+                alt_pressed = keyboard.Key.alt_l in self.current_keys or keyboard.Key.alt_r in self.current_keys
+                
+                if ctrl_pressed and alt_pressed:
+                    # Check for G or H key
+                    if hasattr(key, 'char') and key.char and key.char.lower() in ('g', 'h'):
+                        # Use GLib.idle_add to safely call GTK methods from thread
+                        GLib.idle_add(self.toggle_ghost_mode)
+                        return False  # Stop propagation
+            except AttributeError:
+                pass
+        
+        def on_release(key):
+            """Handle key release events"""
+            try:
+                # Remove key from currently pressed set
+                self.current_keys.discard(key)
+            except:
+                pass
+        
+        # Start keyboard listener in a daemon thread
+        self.keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+        self.keyboard_listener.daemon = True
+        self.keyboard_listener.start()
+        print("Global hotkey listener started (Ctrl+Alt+G or Ctrl+Alt+H to toggle Ghost Mode)")
+    
+    def stop_global_hotkeys(self):
+        """Stop the global hotkey listener"""
+        if hasattr(self, 'keyboard_listener'):
+            self.keyboard_listener.stop()
+            print("Global hotkey listener stopped")
+    
     def apply_margin_changes(self):
         """Helper method to apply margin changes"""
         self.update_viewport_layout()
@@ -665,12 +713,14 @@ class DesktopLens(Gtk.Window):
         
     def on_quit(self, *args):
         self.save_config()
+        self.stop_global_hotkeys()
         self.cleanup_pipeline()
         Gtk.main_quit()
         return False
     
     def on_destroy(self, *args):
         """Ensure proper cleanup on window destruction"""
+        self.stop_global_hotkeys()
         self.cleanup_pipeline()
     
     def cleanup_pipeline(self):
