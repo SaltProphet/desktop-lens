@@ -631,7 +631,6 @@ class DesktopLens(Gtk.Window):
                     if hasattr(key, 'char') and key.char and key.char.lower() in ('g', 'h'):
                         # Use GLib.idle_add to safely call GTK methods from thread
                         GLib.idle_add(self.toggle_ghost_mode)
-                        return False  # Stop propagation
             except AttributeError:
                 pass
         
@@ -640,7 +639,7 @@ class DesktopLens(Gtk.Window):
             try:
                 # Remove key from currently pressed set
                 self.current_keys.discard(key)
-            except:
+            except Exception:
                 pass
         
         # Start keyboard listener in a daemon thread
@@ -661,13 +660,10 @@ class DesktopLens(Gtk.Window):
         self.update_videoscale_caps()
     
     def on_key_press(self, widget, event):
-        """Handle keyboard shortcuts for margin adjustments and ghost mode toggle"""
-        # Global hotkey: Ctrl+Alt+G or Ctrl+Alt+H to toggle ghost mode
-        if (event.state & Gdk.ModifierType.CONTROL_MASK and 
-            event.state & Gdk.ModifierType.MOD1_MASK):  # MOD1 is Alt
-            if event.keyval in (Gdk.KEY_g, Gdk.KEY_G, Gdk.KEY_h, Gdk.KEY_H):
-                self.toggle_ghost_mode()
-                return True
+        """Handle keyboard shortcuts for margin adjustments"""
+        # Note: Ghost mode hotkeys (Ctrl+Alt+G/H) are handled by the global
+        # pynput listener since set_accept_focus(False) prevents this handler
+        # from receiving keyboard events in most cases.
         
         # Space key to toggle freeze
         if event.keyval == Gdk.KEY_space:
