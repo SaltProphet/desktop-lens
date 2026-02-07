@@ -60,15 +60,15 @@ See [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) for detailed performance analys
 - **Scale slider**: Adjust the desktop scale (0.7x to 1.0x)
 - **Drag window**: Reposition the window
 - **Ctrl + Arrow Keys**: Adjust top/left margins by ±5px
-  - `Ctrl+Up`: Decrease top margin
-  - `Ctrl+Down`: Increase top margin
-  - `Ctrl+Left`: Decrease left margin
-  - `Ctrl+Right`: Increase left margin
+  - `Ctrl+Up`: Decrease top margin (viewport moves up)
+  - `Ctrl+Down`: Increase top margin (viewport moves down)
+  - `Ctrl+Left`: Decrease left margin (viewport moves left)
+  - `Ctrl+Right`: Increase left margin (viewport moves right)
 - **Shift + Arrow Keys**: Adjust bottom/right margins by ±5px
-  - `Shift+Up`: Decrease bottom margin
-  - `Shift+Down`: Increase bottom margin
-  - `Shift+Left`: Decrease right margin
-  - `Shift+Right`: Increase right margin
+  - `Shift+Up`: Decrease bottom margin (more space at bottom)
+  - `Shift+Down`: Increase bottom margin (less space at bottom)
+  - `Shift+Left`: Decrease right margin (more space at right)
+  - `Shift+Right`: Increase right margin (less space at right)
 - **Close window**: Save settings and exit
 
 ## Overscan Correction

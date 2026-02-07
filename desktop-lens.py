@@ -171,13 +171,17 @@ class DesktopLens(Gtk.Window):
         viewport_width = screen_width - self.margin_left - self.margin_right
         viewport_height = screen_height - self.margin_top - self.margin_bottom
         
+        # Ensure minimum dimensions before any calculations
+        viewport_width = max(viewport_width, 320)
+        viewport_height = max(viewport_height, 180)
+        
         # Apply scale factor
         viewport_width = int(viewport_width * self.scale_value)
         viewport_height = int(viewport_height * self.scale_value)
         
         # Maintain 16:9 aspect ratio
         aspect_ratio = 16.0 / 9.0
-        viewport_aspect = viewport_width / viewport_height if viewport_height > 0 else aspect_ratio
+        viewport_aspect = viewport_width / viewport_height
         
         if viewport_aspect > aspect_ratio:
             # Width is too large, constrain by height
@@ -186,7 +190,7 @@ class DesktopLens(Gtk.Window):
             # Height is too large, constrain by width
             viewport_height = int(viewport_width / aspect_ratio)
         
-        # Ensure minimum dimensions
+        # Ensure final minimum dimensions
         viewport_width = max(viewport_width, 320)
         viewport_height = max(viewport_height, 180)
         
@@ -280,7 +284,7 @@ class DesktopLens(Gtk.Window):
         self.image_box.set_margin_end(self.margin_right)
         
         self.image = Gtk.Image()
-        self.image_box.pack_start(self.image, False, False, 0)
+        self.image_box.pack_start(self.image, True, True, 0)
         
         vbox.pack_start(self.image_box, True, True, 0)
         
@@ -299,51 +303,48 @@ class DesktopLens(Gtk.Window):
         self.scale_value = slider.get_value()
         self.update_videoscale_caps()
     
+    def apply_margin_changes(self):
+        """Helper method to apply margin changes"""
+        self.update_viewport_layout()
+        self.update_videoscale_caps()
+    
     def on_key_press(self, widget, event):
         """Handle keyboard shortcuts for margin adjustments"""
         # Check if Ctrl key is pressed
         if event.state & Gdk.ModifierType.CONTROL_MASK:
             if event.keyval == Gdk.KEY_Up:
                 self.margin_top = max(0, self.margin_top - 5)
-                self.update_viewport_layout()
-                self.update_videoscale_caps()
+                self.apply_margin_changes()
                 return True
             elif event.keyval == Gdk.KEY_Down:
                 self.margin_top += 5
-                self.update_viewport_layout()
-                self.update_videoscale_caps()
+                self.apply_margin_changes()
                 return True
             elif event.keyval == Gdk.KEY_Left:
                 self.margin_left = max(0, self.margin_left - 5)
-                self.update_viewport_layout()
-                self.update_videoscale_caps()
+                self.apply_margin_changes()
                 return True
             elif event.keyval == Gdk.KEY_Right:
                 self.margin_left += 5
-                self.update_viewport_layout()
-                self.update_videoscale_caps()
+                self.apply_margin_changes()
                 return True
         # Check if Shift key is pressed for bottom/right margins
         elif event.state & Gdk.ModifierType.SHIFT_MASK:
             if event.keyval == Gdk.KEY_Up:
                 self.margin_bottom = max(0, self.margin_bottom - 5)
-                self.update_viewport_layout()
-                self.update_videoscale_caps()
+                self.apply_margin_changes()
                 return True
             elif event.keyval == Gdk.KEY_Down:
                 self.margin_bottom += 5
-                self.update_viewport_layout()
-                self.update_videoscale_caps()
+                self.apply_margin_changes()
                 return True
             elif event.keyval == Gdk.KEY_Left:
                 self.margin_right = max(0, self.margin_right - 5)
-                self.update_viewport_layout()
-                self.update_videoscale_caps()
+                self.apply_margin_changes()
                 return True
             elif event.keyval == Gdk.KEY_Right:
                 self.margin_right += 5
-                self.update_viewport_layout()
-                self.update_videoscale_caps()
+                self.apply_margin_changes()
                 return True
         return False
         
