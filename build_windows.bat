@@ -27,14 +27,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Installing PyInstaller...
-pip install pyinstaller
-if errorlevel 1 (
-    echo ERROR: Failed to install PyInstaller
-    pause
-    exit /b 1
-)
-
 echo.
 echo Building executable with PyInstaller...
 pyinstaller desktop-lens.spec --clean
