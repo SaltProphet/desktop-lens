@@ -560,12 +560,8 @@ class DesktopLens(Gtk.Window):
             self.freeze_button.set_label("Freeze")
     
     def on_toggle_hide(self, button):
-        """Toggle window visibility to avoid hall of mirrors"""
-        if self.is_visible():
-            self.hide()
-            # Auto-show after configured delay to allow user to see the result
-            # without having to manually re-launch the application
-            GLib.timeout_add_seconds(AUTO_SHOW_DELAY_SECONDS, self._show_window)
+        """Toggle window visibility to avoid hall of mirrors (button handler)"""
+        self.toggle_visibility()
         
     def _show_window(self):
         """Show the window after hiding"""
@@ -643,21 +639,16 @@ class DesktopLens(Gtk.Window):
         self.toggle_ghost_mode()
     
     def toggle_visibility(self):
-        """Toggle window visibility (for Ctrl+Alt+H hotkey)"""
+        """Toggle window visibility (for Ctrl+Alt+H hotkey and Hide button)"""
         if self.is_visible():
             self.hide()
-            print("Window hidden via hotkey")
-            # Auto-show after configured delay
-            GLib.timeout_add_seconds(AUTO_SHOW_DELAY_SECONDS, self._show_window_from_hotkey)
+            print("Window hidden")
+            # Auto-show after configured delay to allow user to see the result
+            # without having to manually re-launch the application
+            GLib.timeout_add_seconds(AUTO_SHOW_DELAY_SECONDS, self._show_window)
         else:
             self.show_all()
-            print("Window shown via hotkey")
-    
-    def _show_window_from_hotkey(self):
-        """Show the window after hiding via hotkey"""
-        self.show_all()
-        print(f"Window auto-shown after {AUTO_SHOW_DELAY_SECONDS} seconds")
-        return False
+            print("Window shown")
     
     def init_global_hotkeys(self):
         """Initialize global hotkey listener using pynput"""
