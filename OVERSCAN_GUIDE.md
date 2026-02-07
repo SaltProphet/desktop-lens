@@ -92,7 +92,9 @@ The "hall of mirrors" effect occurs when the application captures its own window
 6. Close the application - settings are automatically saved
 
 ### Adjusting Scale
-Use the slider at the bottom to scale the desktop view (0.7x to 1.0x) while maintaining the 16:9 aspect ratio. The scale adjustment has been optimized to prevent flickering by briefly pausing the pipeline during updates.
+Use the slider at the bottom to scale the desktop view (0.7x to 1.0x) while 
+maintaining the 16:9 aspect ratio. The scale adjustment has been optimized 
+to prevent flickering by briefly pausing the pipeline during updates.
 
 ## Technical Details
 

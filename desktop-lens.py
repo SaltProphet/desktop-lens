@@ -242,9 +242,10 @@ class DesktopLens(Gtk.Window):
         if window:
             xid = window.get_xid()
             print(f"Window realized with XID: {xid}")
-            # The ximagesrc by default captures the entire root window
-            # To avoid hall of mirrors, we'll rely on the freeze feature
-            # or the hide window feature when users need to adjust margins
+            # Note: The ximagesrc by default captures the entire root window.
+            # We rely on the freeze, hide window, and crop region features
+            # to avoid the hall of mirrors effect since excluding a specific
+            # window from X11 screen capture requires more complex approaches.
     
     def on_new_sample(self, sink):
         # If frozen, don't update the image
@@ -372,7 +373,8 @@ class DesktopLens(Gtk.Window):
         if hasattr(self, 'pipeline'):
             self.pipeline.set_state(Gst.State.PAUSED)
         self.update_videoscale_caps()
-        # Resume the pipeline
+        # Resume the pipeline after a 50ms delay to ensure caps are fully applied
+        # This prevents visual glitches during the transition
         if hasattr(self, 'pipeline'):
             GLib.timeout_add(50, self._resume_pipeline)
     
@@ -397,7 +399,8 @@ class DesktopLens(Gtk.Window):
         """Toggle window visibility to avoid hall of mirrors"""
         if self.is_visible():
             self.hide()
-            # Set a timer to show the window again after 5 seconds
+            # Auto-show after 5 seconds to allow user to see the result
+            # without having to manually re-launch the application
             GLib.timeout_add_seconds(5, self._show_window)
         
     def _show_window(self):
