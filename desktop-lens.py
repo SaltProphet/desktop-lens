@@ -3,7 +3,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
-from gi.repository import Gtk, Gdk, Gst, GLib
+from gi.repository import Gtk, Gdk, Gst, GLib, GstVideo
 import json
 import os
 import sys
@@ -20,6 +20,8 @@ class DesktopLens(Gtk.Window):
         self.set_icon_with_fallback()
         self.frozen = False
         self.frozen_pixbuf = None
+        # Check if VideoOverlay mode should be used (set USE_VIDEO_OVERLAY=1 to enable)
+        self.use_video_overlay = os.environ.get("USE_VIDEO_OVERLAY", "0") == "1"
         self.load_config()
         self.init_gstreamer()
         self.init_ui()
@@ -115,6 +117,64 @@ class DesktopLens(Gtk.Window):
             self.src.set_property("endy", self.capture_endy)
             print(f"Cropping capture to region: 0,0 to {self.capture_endx},{self.capture_endy}")
         
+        if self.use_video_overlay:
+            # Use VideoOverlay mode with xvimagesink
+            print("Using VideoOverlay mode with xvimagesink")
+            self.init_gstreamer_overlay()
+        else:
+            # Use appsink mode (default)
+            print("Using appsink mode")
+            self.init_gstreamer_appsink()
+        
+        bus = self.pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message", self.on_bus_message)
+        
+        self.scale_value = self.config["scale"]
+        self.margin_top = self.config["margin_top"]
+        self.margin_bottom = self.config["margin_bottom"]
+        self.margin_left = self.config["margin_left"]
+        self.margin_right = self.config["margin_right"]
+        self.update_videoscale_caps()
+        
+        ret = self.pipeline.set_state(Gst.State.PLAYING)
+        if ret == Gst.StateChangeReturn.FAILURE:
+            sys.exit("Failed to start GStreamer pipeline")
+    
+    def init_gstreamer_overlay(self):
+        """Initialize GStreamer pipeline using VideoOverlay (xvimagesink)"""
+        videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
+        if not videoconvert:
+            sys.exit("Failed to create videoconvert element")
+            
+        self.videoscale = Gst.ElementFactory.make("videoscale", "scale")
+        if not self.videoscale:
+            sys.exit("Failed to create videoscale element")
+        self.videoscale.set_property("method", 3)
+        self.videoscale.set_property("add-borders", True)
+            
+        self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
+        if not self.capsfilter:
+            sys.exit("Failed to create capsfilter element")
+            
+        self.videosink = Gst.ElementFactory.make("xvimagesink", "sink")
+        if not self.videosink:
+            sys.exit("Failed to create xvimagesink element")
+        self.videosink.set_property("force-aspect-ratio", False)
+        
+        self.pipeline.add(self.src)
+        self.pipeline.add(videoconvert)
+        self.pipeline.add(self.videoscale)
+        self.pipeline.add(self.capsfilter)
+        self.pipeline.add(self.videosink)
+        
+        self.src.link(videoconvert)
+        videoconvert.link(self.videoscale)
+        self.videoscale.link(self.capsfilter)
+        self.capsfilter.link(self.videosink)
+    
+    def init_gstreamer_appsink(self):
+        """Initialize GStreamer pipeline using appsink (default mode)"""
         hw_type = self.detect_hw_acceleration()
         
         if hw_type == "vaapi":
@@ -196,22 +256,7 @@ class DesktopLens(Gtk.Window):
         self.appsink.set_property("max-buffers", 1)
         self.appsink.set_property("drop", True)
         self.appsink.connect("new-sample", self.on_new_sample)
-        
-        bus = self.pipeline.get_bus()
-        bus.add_signal_watch()
-        bus.connect("message", self.on_bus_message)
-        
-        self.scale_value = self.config["scale"]
-        self.margin_top = self.config["margin_top"]
-        self.margin_bottom = self.config["margin_bottom"]
-        self.margin_left = self.config["margin_left"]
-        self.margin_right = self.config["margin_right"]
-        self.update_videoscale_caps()
-        
-        ret = self.pipeline.set_state(Gst.State.PLAYING)
-        if ret == Gst.StateChangeReturn.FAILURE:
-            sys.exit("Failed to start GStreamer pipeline")
-        
+    
     def update_videoscale_caps(self):
         screen = Gdk.Screen.get_default()
         screen_width = screen.get_width()
@@ -267,11 +312,20 @@ class DesktopLens(Gtk.Window):
         return True
     
     def on_window_realized(self, widget):
-        """Configure ximagesrc to avoid capturing this window"""
+        """Configure ximagesrc to avoid capturing this window and setup VideoOverlay if enabled"""
+        # If using VideoOverlay mode, set the window handle
+        if self.use_video_overlay and hasattr(self, 'videosink') and hasattr(self, 'drawing_area'):
+            drawing_window = self.drawing_area.get_window()
+            if drawing_window:
+                xid = drawing_window.get_xid()
+                self.videosink.set_window_handle(xid)
+                print(f"VideoOverlay: Set window handle to XID {xid}")
+        
         window = self.get_window()
         if window:
             xid = window.get_xid()
             print(f"Window realized with XID: {xid}")
+            
             # Note: The ximagesrc by default captures the entire root window.
             # We rely on the freeze, hide window, and crop region features
             # to avoid the hall of mirrors effect since excluding a specific
@@ -323,6 +377,7 @@ class DesktopLens(Gtk.Window):
                 if not self.frozen:
                     self.frozen_pixbuf = pixbuf_obj
                     self.image.set_from_pixbuf(pixbuf_obj)
+                    self.image.queue_draw()  # Force redraw
                     print(f"Image updated: {width}x{height}")
                 # If frozen, keep displaying the frozen image
             except (GLib.Error, ValueError) as e:
@@ -358,8 +413,15 @@ class DesktopLens(Gtk.Window):
         self.image_box.set_margin_start(self.margin_left)
         self.image_box.set_margin_end(self.margin_right)
         
-        self.image = Gtk.Image()
-        self.image_box.pack_start(self.image, True, True, 0)
+        if self.use_video_overlay:
+            # Use a DrawingArea for VideoOverlay rendering
+            self.drawing_area = Gtk.DrawingArea()
+            self.drawing_area.set_size_request(800, 450)  # Default 16:9 size
+            self.image_box.pack_start(self.drawing_area, True, True, 0)
+        else:
+            # Use Gtk.Image for appsink rendering
+            self.image = Gtk.Image()
+            self.image_box.pack_start(self.image, True, True, 0)
         
         vbox.pack_start(self.image_box, True, True, 0)
         
