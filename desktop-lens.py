@@ -20,6 +20,7 @@ class DesktopLens(Gtk.Window):
         self.set_icon_with_fallback()
         self.frozen = False
         self.frozen_pixbuf = None
+        self.use_opacity_fallback = False  # Set to True if xid exclusion fails
         # Check if VideoOverlay mode should be used (set USE_VIDEO_OVERLAY=1 to enable)
         self.use_video_overlay = os.environ.get("USE_VIDEO_OVERLAY", "0") == "1"
         self.load_config()
@@ -326,15 +327,25 @@ class DesktopLens(Gtk.Window):
             xid = window.get_xid()
             print(f"Window realized with XID: {xid}")
             
-            # Note: The ximagesrc by default captures the entire root window.
-            # We rely on the freeze, hide window, and crop region features
-            # to avoid the hall of mirrors effect since excluding a specific
-            # window from X11 screen capture requires more complex approaches.
+            # Set the xid property on ximagesrc to exclude this window from capture
+            # This prevents the hall of mirrors effect
+            try:
+                self.src.set_property("xid", xid)
+                print(f"Set ximagesrc xid property to {xid} to exclude window from capture")
+            except Exception as e:
+                print(f"Warning: Could not set xid property on ximagesrc: {e}")
+                print("Note: XID exclusion may not be supported by your compositor")
+                # Fallback: Use opacity approach during capture
+                self.use_opacity_fallback = True
     
     def on_new_sample(self, sink):
         # If frozen, don't update the image
         if self.frozen:
             return Gst.FlowReturn.OK
+        
+        # If using opacity fallback, reduce window opacity during capture
+        if self.use_opacity_fallback:
+            self.set_opacity(0.001)
             
         sample = sink.emit("pull-sample")
         if sample:
@@ -353,6 +364,10 @@ class DesktopLens(Gtk.Window):
                 pixbuf = GLib.Bytes.new(mapinfo.data)
                 GLib.idle_add(self.update_image, pixbuf, width, height, format_str)
                 buffer.unmap(mapinfo)
+        
+        # Restore opacity after capture if using fallback
+        if self.use_opacity_fallback:
+            GLib.idle_add(self._restore_opacity)
         
         return Gst.FlowReturn.OK
     
@@ -383,6 +398,11 @@ class DesktopLens(Gtk.Window):
             except (GLib.Error, ValueError) as e:
                 print(f"Error updating image: {e}")
                 pass
+        return False
+    
+    def _restore_opacity(self):
+        """Restore window opacity after frame capture"""
+        self.set_opacity(1.0)
         return False
         
     def update_viewport_layout(self):
@@ -542,6 +562,10 @@ class DesktopLens(Gtk.Window):
     
     def on_key_press(self, widget, event):
         """Handle keyboard shortcuts for margin adjustments"""
+        # Space key to toggle freeze
+        if event.keyval == Gdk.KEY_space:
+            self.on_toggle_freeze(None)
+            return True
         # Check if Ctrl key is pressed
         if event.state & Gdk.ModifierType.CONTROL_MASK:
             if event.keyval == Gdk.KEY_Up:
