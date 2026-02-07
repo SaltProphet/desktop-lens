@@ -58,6 +58,9 @@ See [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) for detailed performance analys
 
 ## Controls
 - **Scale slider**: Adjust the desktop scale (0.7x to 1.0x)
+- **Freeze button**: Snapshot the current desktop view and freeze it (useful for aligning margins without the hall of mirrors effect)
+- **Hide Window button**: Temporarily hide the window for 5 seconds (allows capturing without self-recursion)
+- **Crop button**: Toggle region cropping to limit capture to primary monitor only (prevents hall of mirrors on multi-monitor setups)
 - **Drag window**: Reposition the window
 - **Ctrl + Arrow Keys**: Adjust top/left margins by ±5px
   - `Ctrl+Up`: Decrease top margin (viewport moves up)
@@ -70,6 +73,12 @@ See [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) for detailed performance analys
   - `Shift+Left`: Decrease right margin (more space at right)
   - `Shift+Right`: Increase right margin (less space at right)
 - **Close window**: Save settings and exit
+
+## Hall of Mirrors Prevention
+The application provides multiple ways to prevent the "hall of mirrors" effect (when the application captures itself):
+1. **Freeze button**: Snapshot the desktop and pause updates, allowing you to adjust margins without recursion
+2. **Hide Window button**: Temporarily hide the application window for 5 seconds
+3. **Crop Region button**: Limit capture to the primary monitor area, useful for multi-monitor setups
 
 ## Overscan Correction
 The viewport is automatically centered with configurable margins to compensate for TV overscan. The default margins are 100px on all sides, but can be adjusted using keyboard shortcuts to perfectly align the viewport with your TV's visible area. The aspect ratio is maintained at 16:9 to prevent UI distortion.

@@ -13,11 +13,15 @@ CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
 class DesktopLens(Gtk.Window):
     def __init__(self):
         super().__init__()
+        self.frozen = False
+        self.frozen_pixbuf = None
         self.load_config()
         self.init_gstreamer()
         self.init_ui()
         self.connect("delete-event", self.on_quit)
         self.connect("destroy", self.on_destroy)
+        # Set xid after the window is realized to exclude it from capture
+        self.connect("realize", self.on_window_realized)
         
     def load_config(self):
         self.config = {
@@ -27,7 +31,10 @@ class DesktopLens(Gtk.Window):
             "margin_top": 100,
             "margin_bottom": 100,
             "margin_left": 100,
-            "margin_right": 100
+            "margin_right": 100,
+            "crop_to_region": False,
+            "capture_endx": 0,
+            "capture_endy": 0
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -47,6 +54,9 @@ class DesktopLens(Gtk.Window):
             self.config["margin_bottom"] = self.margin_bottom
             self.config["margin_left"] = self.margin_left
             self.config["margin_right"] = self.margin_right
+            self.config["crop_to_region"] = getattr(self, 'crop_to_region', False)
+            self.config["capture_endx"] = getattr(self, 'capture_endx', 0)
+            self.config["capture_endy"] = getattr(self, 'capture_endy', 0)
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(self.config, f, indent=2)
         except (IOError, OSError):
@@ -68,6 +78,16 @@ class DesktopLens(Gtk.Window):
         if not self.src:
             sys.exit("Failed to create ximagesrc element. Ensure gstreamer1.0-plugins-good is installed.")
         self.src.set_property("use-damage", False)
+        
+        # Apply capture region cropping if configured
+        self.crop_to_region = self.config.get("crop_to_region", False)
+        self.capture_endx = self.config.get("capture_endx", 0)
+        self.capture_endy = self.config.get("capture_endy", 0)
+        
+        if self.crop_to_region and self.capture_endx > 0 and self.capture_endy > 0:
+            self.src.set_property("endx", self.capture_endx)
+            self.src.set_property("endy", self.capture_endy)
+            print(f"Cropping capture to region: 0,0 to {self.capture_endx},{self.capture_endy}")
         
         hw_type = self.detect_hw_acceleration()
         
@@ -216,7 +236,22 @@ class DesktopLens(Gtk.Window):
             self.pipeline.set_state(Gst.State.NULL)
         return True
     
+    def on_window_realized(self, widget):
+        """Configure ximagesrc to avoid capturing this window"""
+        window = self.get_window()
+        if window:
+            xid = window.get_xid()
+            print(f"Window realized with XID: {xid}")
+            # Note: The ximagesrc by default captures the entire root window.
+            # We rely on the freeze, hide window, and crop region features
+            # to avoid the hall of mirrors effect since excluding a specific
+            # window from X11 screen capture requires more complex approaches.
+    
     def on_new_sample(self, sink):
+        # If frozen, don't update the image
+        if self.frozen:
+            return Gst.FlowReturn.OK
+            
         sample = sink.emit("pull-sample")
         if sample:
             buffer = sample.get_buffer()
@@ -250,7 +285,12 @@ class DesktopLens(Gtk.Window):
                 pixbuf_obj = Gdk.Pixbuf.new_from_bytes(
                     pixbuf, Gdk.Colorspace.RGB, has_alpha, 8, width, height, rowstride
                 )
-                self.image.set_from_pixbuf(pixbuf_obj)
+                
+                # Store the pixbuf for freeze functionality
+                if not self.frozen:
+                    self.frozen_pixbuf = pixbuf_obj
+                    self.image.set_from_pixbuf(pixbuf_obj)
+                # If frozen, keep displaying the frozen image
             except (GLib.Error, ValueError):
                 pass
         return False
@@ -288,10 +328,38 @@ class DesktopLens(Gtk.Window):
         
         vbox.pack_start(self.image_box, True, True, 0)
         
+        # Controls container at the bottom
+        controls_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        controls_box.set_margin_start(5)
+        controls_box.set_margin_end(5)
+        controls_box.set_margin_top(5)
+        controls_box.set_margin_bottom(5)
+        
+        # Scale slider
         slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.7, 1.0, 0.01)
         slider.set_value(self.scale_value)
         slider.connect("value-changed", self.on_scale_changed)
-        vbox.pack_start(slider, False, False, 0)
+        slider.set_hexpand(True)
+        controls_box.pack_start(slider, True, True, 0)
+        
+        # Toggle Freeze button
+        self.freeze_button = Gtk.Button(label="Freeze")
+        self.freeze_button.connect("clicked", self.on_toggle_freeze)
+        controls_box.pack_start(self.freeze_button, False, False, 0)
+        
+        # Hide Window button (toggle visibility)
+        self.hide_button = Gtk.Button(label="Hide Window")
+        self.hide_button.connect("clicked", self.on_toggle_hide)
+        controls_box.pack_start(self.hide_button, False, False, 0)
+        
+        # Crop Region button (toggle capture area cropping)
+        self.crop_button = Gtk.Button(label="Crop: OFF")
+        self.crop_button.connect("clicked", self.on_toggle_crop)
+        controls_box.pack_start(self.crop_button, False, False, 0)
+        if self.crop_to_region:
+            self.crop_button.set_label("Crop: ON")
+        
+        vbox.pack_start(controls_box, False, False, 0)
         
         # Connect keyboard events
         self.connect("key-press-event", self.on_key_press)
@@ -301,7 +369,74 @@ class DesktopLens(Gtk.Window):
         
     def on_scale_changed(self, slider):
         self.scale_value = slider.get_value()
+        # Pause the pipeline briefly to prevent flickering
+        if hasattr(self, 'pipeline'):
+            self.pipeline.set_state(Gst.State.PAUSED)
         self.update_videoscale_caps()
+        # Resume the pipeline after a 50ms delay to ensure caps are fully applied
+        # This prevents visual glitches during the transition
+        if hasattr(self, 'pipeline'):
+            GLib.timeout_add(50, self._resume_pipeline)
+    
+    def _resume_pipeline(self):
+        """Resume pipeline after a brief delay to prevent flickering"""
+        if hasattr(self, 'pipeline'):
+            self.pipeline.set_state(Gst.State.PLAYING)
+        return False
+    
+    def on_toggle_freeze(self, button):
+        """Toggle freeze mode to snapshot the desktop"""
+        self.frozen = not self.frozen
+        if self.frozen:
+            self.freeze_button.set_label("Unfreeze")
+            # Display the last captured frame
+            if self.frozen_pixbuf:
+                self.image.set_from_pixbuf(self.frozen_pixbuf)
+        else:
+            self.freeze_button.set_label("Freeze")
+    
+    def on_toggle_hide(self, button):
+        """Toggle window visibility to avoid hall of mirrors"""
+        if self.is_visible():
+            self.hide()
+            # Auto-show after 5 seconds to allow user to see the result
+            # without having to manually re-launch the application
+            GLib.timeout_add_seconds(5, self._show_window)
+        
+    def _show_window(self):
+        """Show the window after hiding"""
+        self.show_all()
+        return False
+    
+    def on_toggle_crop(self, button):
+        """Toggle capture region cropping to avoid hall of mirrors"""
+        self.crop_to_region = not self.crop_to_region
+        
+        if self.crop_to_region:
+            # Get the primary monitor dimensions
+            screen = Gdk.Screen.get_default()
+            display = screen.get_display()
+            monitor = display.get_primary_monitor()
+            if monitor:
+                geometry = monitor.get_geometry()
+                self.capture_endx = geometry.width
+                self.capture_endy = geometry.height
+                self.src.set_property("endx", self.capture_endx)
+                self.src.set_property("endy", self.capture_endy)
+                self.crop_button.set_label("Crop: ON")
+                print(f"Enabled region cropping to {self.capture_endx}x{self.capture_endy}")
+            else:
+                # Fallback if we can't get monitor info
+                self.crop_to_region = False
+                print("Could not determine monitor dimensions")
+        else:
+            # Reset to full screen capture
+            self.src.set_property("endx", 0)
+            self.src.set_property("endy", 0)
+            self.capture_endx = 0
+            self.capture_endy = 0
+            self.crop_button.set_label("Crop: OFF")
+            print("Disabled region cropping")
     
     def apply_margin_changes(self):
         """Helper method to apply margin changes"""
