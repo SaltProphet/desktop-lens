@@ -20,7 +20,15 @@ class DesktopLens(Gtk.Window):
         self.connect("destroy", self.on_destroy)
         
     def load_config(self):
-        self.config = {"x": 0, "y": 0, "scale": 1.0}
+        self.config = {
+            "x": 0, 
+            "y": 0, 
+            "scale": 1.0,
+            "margin_top": 100,
+            "margin_bottom": 100,
+            "margin_left": 100,
+            "margin_right": 100
+        }
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r') as f:
@@ -35,8 +43,12 @@ class DesktopLens(Gtk.Window):
             self.config["x"] = x
             self.config["y"] = y
             self.config["scale"] = self.scale_value
+            self.config["margin_top"] = self.margin_top
+            self.config["margin_bottom"] = self.margin_bottom
+            self.config["margin_left"] = self.margin_left
+            self.config["margin_right"] = self.margin_right
             with open(CONFIG_FILE, 'w') as f:
-                json.dump(self.config, f)
+                json.dump(self.config, f, indent=2)
         except (IOError, OSError):
             pass
     
@@ -140,6 +152,10 @@ class DesktopLens(Gtk.Window):
         bus.connect("message", self.on_bus_message)
         
         self.scale_value = self.config["scale"]
+        self.margin_top = self.config["margin_top"]
+        self.margin_bottom = self.config["margin_bottom"]
+        self.margin_left = self.config["margin_left"]
+        self.margin_right = self.config["margin_right"]
         self.update_videoscale_caps()
         
         ret = self.pipeline.set_state(Gst.State.PLAYING)
@@ -148,13 +164,40 @@ class DesktopLens(Gtk.Window):
         
     def update_videoscale_caps(self):
         screen = Gdk.Screen.get_default()
-        width = int(screen.get_width() * self.scale_value)
-        height = int(screen.get_height() * self.scale_value)
+        screen_width = screen.get_width()
+        screen_height = screen.get_height()
         
-        caps_str = f"video/x-raw,width={width},height={height}"
+        # Calculate available viewport dimensions after removing margins
+        viewport_width = screen_width - self.margin_left - self.margin_right
+        viewport_height = screen_height - self.margin_top - self.margin_bottom
+        
+        # Apply scale factor
+        viewport_width = int(viewport_width * self.scale_value)
+        viewport_height = int(viewport_height * self.scale_value)
+        
+        # Maintain 16:9 aspect ratio
+        aspect_ratio = 16.0 / 9.0
+        viewport_aspect = viewport_width / viewport_height if viewport_height > 0 else aspect_ratio
+        
+        if viewport_aspect > aspect_ratio:
+            # Width is too large, constrain by height
+            viewport_width = int(viewport_height * aspect_ratio)
+        else:
+            # Height is too large, constrain by width
+            viewport_height = int(viewport_width / aspect_ratio)
+        
+        # Ensure minimum dimensions
+        viewport_width = max(viewport_width, 320)
+        viewport_height = max(viewport_height, 180)
+        
+        caps_str = f"video/x-raw,width={viewport_width},height={viewport_height}"
         caps = Gst.Caps.from_string(caps_str)
         
         self.capsfilter.set_property("caps", caps)
+        
+        # Update the layout if image widget exists
+        if hasattr(self, 'image_box'):
+            self.update_viewport_layout()
         
     def on_bus_message(self, bus, message):
         """Handle GStreamer bus messages to prevent UI freezes"""
@@ -208,22 +251,46 @@ class DesktopLens(Gtk.Window):
                 pass
         return False
         
+    def update_viewport_layout(self):
+        """Update the padding around the viewport based on margins"""
+        if hasattr(self, 'image_box'):
+            self.image_box.set_margin_top(self.margin_top)
+            self.image_box.set_margin_bottom(self.margin_bottom)
+            self.image_box.set_margin_start(self.margin_left)
+            self.image_box.set_margin_end(self.margin_right)
+        
     def init_ui(self):
         self.set_decorated(False)
         self.set_keep_above(True)
-        self.set_accept_focus(False)
+        self.set_accept_focus(True)  # Need to accept focus for keyboard shortcuts
         self.move(self.config["x"], self.config["y"])
         
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add(vbox)
         
+        # Create a centered container for the viewport with margins
+        self.image_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.image_box.set_halign(Gtk.Align.CENTER)
+        self.image_box.set_valign(Gtk.Align.CENTER)
+        
+        # Apply initial margins
+        self.image_box.set_margin_top(self.margin_top)
+        self.image_box.set_margin_bottom(self.margin_bottom)
+        self.image_box.set_margin_start(self.margin_left)
+        self.image_box.set_margin_end(self.margin_right)
+        
         self.image = Gtk.Image()
-        vbox.pack_start(self.image, True, True, 0)
+        self.image_box.pack_start(self.image, False, False, 0)
+        
+        vbox.pack_start(self.image_box, True, True, 0)
         
         slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.7, 1.0, 0.01)
         slider.set_value(self.scale_value)
         slider.connect("value-changed", self.on_scale_changed)
         vbox.pack_start(slider, False, False, 0)
+        
+        # Connect keyboard events
+        self.connect("key-press-event", self.on_key_press)
         
         self.set_default_size(800, 600)
         self.show_all()
@@ -231,6 +298,54 @@ class DesktopLens(Gtk.Window):
     def on_scale_changed(self, slider):
         self.scale_value = slider.get_value()
         self.update_videoscale_caps()
+    
+    def on_key_press(self, widget, event):
+        """Handle keyboard shortcuts for margin adjustments"""
+        # Check if Ctrl key is pressed
+        if event.state & Gdk.ModifierType.CONTROL_MASK:
+            if event.keyval == Gdk.KEY_Up:
+                self.margin_top = max(0, self.margin_top - 5)
+                self.update_viewport_layout()
+                self.update_videoscale_caps()
+                return True
+            elif event.keyval == Gdk.KEY_Down:
+                self.margin_top += 5
+                self.update_viewport_layout()
+                self.update_videoscale_caps()
+                return True
+            elif event.keyval == Gdk.KEY_Left:
+                self.margin_left = max(0, self.margin_left - 5)
+                self.update_viewport_layout()
+                self.update_videoscale_caps()
+                return True
+            elif event.keyval == Gdk.KEY_Right:
+                self.margin_left += 5
+                self.update_viewport_layout()
+                self.update_videoscale_caps()
+                return True
+        # Check if Shift key is pressed for bottom/right margins
+        elif event.state & Gdk.ModifierType.SHIFT_MASK:
+            if event.keyval == Gdk.KEY_Up:
+                self.margin_bottom = max(0, self.margin_bottom - 5)
+                self.update_viewport_layout()
+                self.update_videoscale_caps()
+                return True
+            elif event.keyval == Gdk.KEY_Down:
+                self.margin_bottom += 5
+                self.update_viewport_layout()
+                self.update_videoscale_caps()
+                return True
+            elif event.keyval == Gdk.KEY_Left:
+                self.margin_right = max(0, self.margin_right - 5)
+                self.update_viewport_layout()
+                self.update_videoscale_caps()
+                return True
+            elif event.keyval == Gdk.KEY_Right:
+                self.margin_right += 5
+                self.update_viewport_layout()
+                self.update_videoscale_caps()
+                return True
+        return False
         
     def on_quit(self, *args):
         self.save_config()

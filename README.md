@@ -5,9 +5,12 @@ A Python/GStreamer tool to correct TV overscan by creating a resizable, hardware
 - Captures the root X11 window using ximagesrc
 - Hardware-accelerated scaling (VAAPI/OpenGL) with software fallback
 - GStreamer pipeline: ximagesrc → (hw-accelerated scaling) → appsink
-- Borderless, always-on-top, non-intrusive GTK3 window
+- Borderless, always-on-top GTK3 window
 - Dynamic scale adjustment via slider (0.7x to 1.0x)
-- JSON persistence for window position and scale factor
+- **Configurable margins** to compensate for TV overscan (default: 100px all sides)
+- **16:9 aspect ratio** maintained automatically
+- **Keyboard shortcuts** for fine-tuning viewport position
+- JSON persistence for window position, scale factor, and margins
 - Graceful GStreamer shutdown with proper resource cleanup
 - Bus monitoring for error handling and UI responsiveness
 
@@ -43,6 +46,7 @@ pip3 install -r requirements.txt
 Configuration is automatically saved to `~/.config/desktop-lens.json` and includes:
 - Window X/Y position
 - Scale factor (0.7-1.0)
+- Margin settings (top, bottom, left, right) - default 100px each
 
 ## Performance
 The application automatically detects and uses hardware acceleration when available:
@@ -53,6 +57,19 @@ The application automatically detects and uses hardware acceleration when availa
 See [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) for detailed performance analysis.
 
 ## Controls
-- Use the slider at the bottom to adjust the desktop scale
-- Drag the window to reposition it
-- Close the window to save settings and exit
+- **Scale slider**: Adjust the desktop scale (0.7x to 1.0x)
+- **Drag window**: Reposition the window
+- **Ctrl + Arrow Keys**: Adjust top/left margins by ±5px
+  - `Ctrl+Up`: Decrease top margin
+  - `Ctrl+Down`: Increase top margin
+  - `Ctrl+Left`: Decrease left margin
+  - `Ctrl+Right`: Increase left margin
+- **Shift + Arrow Keys**: Adjust bottom/right margins by ±5px
+  - `Shift+Up`: Decrease bottom margin
+  - `Shift+Down`: Increase bottom margin
+  - `Shift+Left`: Decrease right margin
+  - `Shift+Right`: Increase right margin
+- **Close window**: Save settings and exit
+
+## Overscan Correction
+The viewport is automatically centered with configurable margins to compensate for TV overscan. The default margins are 100px on all sides, but can be adjusted using keyboard shortcuts to perfectly align the viewport with your TV's visible area. The aspect ratio is maintained at 16:9 to prevent UI distortion.
