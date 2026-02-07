@@ -19,7 +19,13 @@ from threading import Thread
 IS_WINDOWS = platform.system() == 'Windows'
 IS_LINUX = platform.system() == 'Linux'
 
-CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json") if not IS_WINDOWS else os.path.expanduser("~/AppData/Local/desktop-lens.json")
+# Platform-specific config file path
+if IS_WINDOWS:
+    config_dir = os.getenv('LOCALAPPDATA', os.path.expanduser('~/AppData/Local'))
+    CONFIG_FILE = os.path.join(config_dir, 'desktop-lens.json')
+else:
+    CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
+
 AUTO_SHOW_DELAY_SECONDS = 5  # Auto-show window after hiding via hotkey or button
 
 class DesktopLens(Gtk.Window):
@@ -145,7 +151,8 @@ class DesktopLens(Gtk.Window):
         self.capture_endx = self.config.get("capture_endx", 0)
         self.capture_endy = self.config.get("capture_endy", 0)
         
-        if not IS_WINDOWS and self.crop_to_region and self.capture_endx > 0 and self.capture_endy > 0:
+        # Region cropping only works on Linux with ximagesrc
+        if IS_LINUX and self.crop_to_region and self.capture_endx > 0 and self.capture_endy > 0:
             self.src.set_property("endx", self.capture_endx)
             self.src.set_property("endy", self.capture_endy)
             print(f"Cropping capture to region: 0,0 to {self.capture_endx},{self.capture_endy}")
