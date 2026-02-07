@@ -15,6 +15,7 @@ from pynput import keyboard
 from threading import Thread
 
 CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
+AUTO_SHOW_DELAY_SECONDS = 5  # Auto-show window after hiding via hotkey or button
 
 class DesktopLens(Gtk.Window):
     def __init__(self):
@@ -559,12 +560,8 @@ class DesktopLens(Gtk.Window):
             self.freeze_button.set_label("Freeze")
     
     def on_toggle_hide(self, button):
-        """Toggle window visibility to avoid hall of mirrors"""
-        if self.is_visible():
-            self.hide()
-            # Auto-show after 5 seconds to allow user to see the result
-            # without having to manually re-launch the application
-            GLib.timeout_add_seconds(5, self._show_window)
+        """Toggle window visibility to avoid hall of mirrors (button handler)"""
+        self.toggle_visibility()
         
     def _show_window(self):
         """Show the window after hiding"""
@@ -641,6 +638,18 @@ class DesktopLens(Gtk.Window):
         """Handle ghost mode button click"""
         self.toggle_ghost_mode()
     
+    def toggle_visibility(self):
+        """Toggle window visibility (for Ctrl+Alt+H hotkey and Hide button)"""
+        if self.is_visible():
+            self.hide()
+            print("Window hidden")
+            # Auto-show after configured delay to allow user to see the result
+            # without having to manually re-launch the application
+            GLib.timeout_add_seconds(AUTO_SHOW_DELAY_SECONDS, self._show_window)
+        else:
+            self.show_all()
+            print("Window shown")
+    
     def init_global_hotkeys(self):
         """Initialize global hotkey listener using pynput"""
         # Track currently pressed keys (accessed from pynput thread)
@@ -659,9 +668,12 @@ class DesktopLens(Gtk.Window):
                 
                 if ctrl_pressed and alt_pressed:
                     # Check for G or H key
-                    if hasattr(key, 'char') and key.char and key.char.lower() in ('g', 'h'):
-                        # Use GLib.idle_add to safely call GTK methods from thread
+                    if hasattr(key, 'char') and key.char and key.char.lower() == 'g':
+                        # Ctrl+Alt+G: Toggle Ghost Mode
                         GLib.idle_add(self.toggle_ghost_mode)
+                    elif hasattr(key, 'char') and key.char and key.char.lower() == 'h':
+                        # Ctrl+Alt+H: Toggle Visibility
+                        GLib.idle_add(self.toggle_visibility)
             except AttributeError:
                 pass
         
@@ -673,7 +685,7 @@ class DesktopLens(Gtk.Window):
         # Start keyboard listener in a daemon thread (daemon must be set before start)
         self.keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release, daemon=True)
         self.keyboard_listener.start()
-        print("Global hotkey listener started (Ctrl+Alt+G or Ctrl+Alt+H to toggle Ghost Mode)")
+        print("Global hotkey listener started (Ctrl+Alt+G for Ghost Mode, Ctrl+Alt+H for Visibility)")
     
     def stop_global_hotkeys(self):
         """Stop the global hotkey listener"""
