@@ -365,9 +365,10 @@ class DesktopLens(Gtk.Window):
                 GLib.idle_add(self.update_image, pixbuf, width, height, format_str)
                 buffer.unmap(mapinfo)
         
-        # Restore opacity after capture if using fallback
+        # Restore opacity immediately after capture if using fallback
+        # Using direct call instead of idle_add to prevent opacity from staying low
         if self.use_opacity_fallback:
-            GLib.idle_add(self._restore_opacity)
+            self.set_opacity(1.0)
         
         return Gst.FlowReturn.OK
     
@@ -398,11 +399,6 @@ class DesktopLens(Gtk.Window):
             except (GLib.Error, ValueError) as e:
                 print(f"Error updating image: {e}")
                 pass
-        return False
-    
-    def _restore_opacity(self):
-        """Restore window opacity after frame capture"""
-        self.set_opacity(1.0)
         return False
         
     def update_viewport_layout(self):
