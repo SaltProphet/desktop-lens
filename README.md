@@ -58,7 +58,7 @@ See [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) for detailed performance analys
 
 ## Controls
 - **Scale slider**: Adjust the desktop scale (0.7x to 1.0x)
-- **Freeze button**: Snapshot the current desktop view and freeze it (useful for aligning margins without the hall of mirrors effect)
+- **Freeze button** (or **Space key**): Snapshot the current desktop view and freeze it (useful for aligning margins without the hall of mirrors effect)
 - **Hide Window button**: Temporarily hide the window for 5 seconds (allows capturing without self-recursion)
 - **Crop button**: Toggle region cropping to limit capture to primary monitor only (prevents hall of mirrors on multi-monitor setups)
 - **Drag window**: Reposition the window
@@ -75,8 +75,14 @@ See [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) for detailed performance analys
 - **Close window**: Save settings and exit
 
 ## Hall of Mirrors Prevention
-The application provides multiple ways to prevent the "hall of mirrors" effect (when the application captures itself):
-1. **Freeze button**: Snapshot the desktop and pause updates, allowing you to adjust margins without recursion
+The application provides multiple automatic and manual ways to prevent the "hall of mirrors" effect (when the application captures itself):
+
+**Automatic Prevention:**
+1. **XID Exclusion**: The application automatically sets its window ID (XID) on ximagesrc to exclude itself from capture
+2. **Opacity Fallback**: If XID exclusion is not supported by your compositor, the window automatically becomes nearly transparent (opacity 0.001) during frame capture, then restores to full opacity
+
+**Manual Controls:**
+1. **Freeze button/Space key**: Snapshot the desktop and pause updates, allowing you to adjust margins without recursion
 2. **Hide Window button**: Temporarily hide the application window for 5 seconds
 3. **Crop Region button**: Limit capture to the primary monitor area, useful for multi-monitor setups
 
