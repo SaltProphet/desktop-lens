@@ -53,7 +53,7 @@ def detect_hw_acceleration(self):
 
 **Solution:** Added `set_accept_focus(False)` to make window non-intrusive.
 
-**Implementation (line 185):**
+**Implementation (line 214):**
 ```python
 def init_ui(self):
     self.set_decorated(False)
@@ -73,14 +73,14 @@ def init_ui(self):
 
 **Solution:** Implemented bus signal watching with proper message handling.
 
-**Implementation (lines 132-137):**
+**Implementation (lines 138-140):**
 ```python
 bus = self.pipeline.get_bus()
 bus.add_signal_watch()
 bus.connect("message", self.on_bus_message)
 ```
 
-**Message Handler (lines 143-154):**
+**Message Handler (lines 159-170):**
 ```python
 def on_bus_message(self, bus, message):
     """Handle GStreamer bus messages to prevent UI freezes"""
@@ -105,7 +105,7 @@ def on_bus_message(self, bus, message):
 
 **Status:** Configuration handling was already robust.
 
-**Implementation (lines 22-28):**
+**Implementation (lines 22-29):**
 ```python
 def load_config(self):
     self.config = {"x": 0, "y": 0, "scale": 1.0}
@@ -128,7 +128,7 @@ def load_config(self):
 
 **Solution:** Added proper cleanup handlers and bus signal removal.
 
-**Implementation (lines 203-220):**
+**Implementation (lines 233-252):**
 ```python
 def on_quit(self, *args):
     self.save_config()
@@ -150,7 +150,7 @@ def cleanup_pipeline(self):
         self.pipeline = None
 ```
 
-**Additional Optimizations (lines 131-134):**
+**Additional Optimizations (lines 132-135):**
 ```python
 self.appsink.set_property("max-buffers", 1)  # Minimize buffer queue
 self.appsink.set_property("drop", True)       # Drop old frames for low latency

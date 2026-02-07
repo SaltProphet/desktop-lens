@@ -54,7 +54,7 @@ class DesktopLens(Gtk.Window):
         
         self.src = Gst.ElementFactory.make("ximagesrc", "src")
         if not self.src:
-            sys.exit("Failed to create ximagesrc element")
+            sys.exit("Failed to create ximagesrc element. Ensure gstreamer1.0-plugins-good is installed.")
         self.src.set_property("use-damage", False)
         
         hw_type = self.detect_hw_acceleration()
@@ -178,20 +178,30 @@ class DesktopLens(Gtk.Window):
             struct = caps.get_structure(0)
             width = struct.get_value("width")
             height = struct.get_value("height")
+            format_str = struct.get_value("format")
             
             success, mapinfo = buffer.map(Gst.MapFlags.READ)
             if success:
                 pixbuf = GLib.Bytes.new(mapinfo.data)
-                GLib.idle_add(self.update_image, pixbuf, width, height)
+                GLib.idle_add(self.update_image, pixbuf, width, height, format_str)
                 buffer.unmap(mapinfo)
         
         return Gst.FlowReturn.OK
     
-    def update_image(self, pixbuf, width, height):
+    def update_image(self, pixbuf, width, height, format_str):
         if hasattr(self, 'image'):
             try:
+                if format_str in ("RGB", "BGR"):
+                    rowstride = width * 3
+                    has_alpha = False
+                elif format_str in ("RGBA", "BGRA", "RGBx", "BGRx"):
+                    rowstride = width * 4
+                    has_alpha = format_str in ("RGBA", "BGRA")
+                else:
+                    return False
+                
                 pixbuf_obj = Gdk.Pixbuf.new_from_bytes(
-                    pixbuf, Gdk.Colorspace.RGB, False, 8, width, height, width * 3
+                    pixbuf, Gdk.Colorspace.RGB, has_alpha, 8, width, height, rowstride
                 )
                 self.image.set_from_pixbuf(pixbuf_obj)
             except (GLib.Error, ValueError):
