@@ -3,7 +3,8 @@ import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
-from gi.repository import Gtk, Gdk, Gst, GLib, GstVideo
+gi.require_version('GdkPixbuf', '2.0')
+from gi.repository import Gtk, Gdk, Gst, GLib, GstVideo, GdkPixbuf
 import json
 import os
 import sys
@@ -191,18 +192,24 @@ class DesktopLens(Gtk.Window):
             vaapipostproc = Gst.ElementFactory.make("vaapipostproc", "hwscale")
             vaapipostproc.set_property("scale-method", 2)
             videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
+            # Add capsfilter to force RGBA format after videoconvert
+            rgba_capsfilter = Gst.ElementFactory.make("capsfilter", "rgba_filter")
+            rgba_caps = Gst.Caps.from_string("video/x-raw,format=RGBA")
+            rgba_capsfilter.set_property("caps", rgba_caps)
             self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
             self.appsink = Gst.ElementFactory.make("appsink", "sink")
             
             self.pipeline.add(self.src)
             self.pipeline.add(vaapipostproc)
             self.pipeline.add(videoconvert)
+            self.pipeline.add(rgba_capsfilter)
             self.pipeline.add(self.capsfilter)
             self.pipeline.add(self.appsink)
             
             self.src.link(vaapipostproc)
             vaapipostproc.link(videoconvert)
-            videoconvert.link(self.capsfilter)
+            videoconvert.link(rgba_capsfilter)
+            rgba_capsfilter.link(self.capsfilter)
             self.capsfilter.link(self.appsink)
             self.videoscale = vaapipostproc
         elif hw_type == "gl":
@@ -211,6 +218,10 @@ class DesktopLens(Gtk.Window):
             glscale = Gst.ElementFactory.make("glcolorscale", "glscale")
             gldownload = Gst.ElementFactory.make("gldownload", "download")
             videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
+            # Add capsfilter to force RGBA format after videoconvert
+            rgba_capsfilter = Gst.ElementFactory.make("capsfilter", "rgba_filter")
+            rgba_caps = Gst.Caps.from_string("video/x-raw,format=RGBA")
+            rgba_capsfilter.set_property("caps", rgba_caps)
             self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
             self.appsink = Gst.ElementFactory.make("appsink", "sink")
             
@@ -220,6 +231,7 @@ class DesktopLens(Gtk.Window):
             self.pipeline.add(glscale)
             self.pipeline.add(gldownload)
             self.pipeline.add(videoconvert)
+            self.pipeline.add(rgba_capsfilter)
             self.pipeline.add(self.capsfilter)
             self.pipeline.add(self.appsink)
             
@@ -228,13 +240,19 @@ class DesktopLens(Gtk.Window):
             glcolorconvert.link(glscale)
             glscale.link(gldownload)
             gldownload.link(videoconvert)
-            videoconvert.link(self.capsfilter)
+            videoconvert.link(rgba_capsfilter)
+            rgba_capsfilter.link(self.capsfilter)
             self.capsfilter.link(self.appsink)
             self.videoscale = glscale
         else:
             videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
             if not videoconvert:
                 sys.exit("Failed to create videoconvert element")
+            
+            # Add capsfilter to force RGBA format after videoconvert
+            rgba_capsfilter = Gst.ElementFactory.make("capsfilter", "rgba_filter")
+            rgba_caps = Gst.Caps.from_string("video/x-raw,format=RGBA")
+            rgba_capsfilter.set_property("caps", rgba_caps)
                 
             self.videoscale = Gst.ElementFactory.make("videoscale", "scale")
             if not self.videoscale:
@@ -252,19 +270,25 @@ class DesktopLens(Gtk.Window):
             
             self.pipeline.add(self.src)
             self.pipeline.add(videoconvert)
+            self.pipeline.add(rgba_capsfilter)
             self.pipeline.add(self.videoscale)
             self.pipeline.add(self.capsfilter)
             self.pipeline.add(self.appsink)
             
             self.src.link(videoconvert)
-            videoconvert.link(self.videoscale)
+            videoconvert.link(rgba_capsfilter)
+            rgba_capsfilter.link(self.videoscale)
             self.videoscale.link(self.capsfilter)
             self.capsfilter.link(self.appsink)
         
+        # Set appsink properties with explicit RGBA caps
         self.appsink.set_property("emit-signals", True)
         self.appsink.set_property("sync", False)
         self.appsink.set_property("max-buffers", 1)
         self.appsink.set_property("drop", True)
+        # Set caps to RGBA format
+        appsink_caps = Gst.Caps.from_string("video/x-raw,format=RGBA")
+        self.appsink.set_property("caps", appsink_caps)
         self.appsink.connect("new-sample", self.on_new_sample)
     
     def update_videoscale_caps(self):
@@ -404,8 +428,8 @@ class DesktopLens(Gtk.Window):
                     print(f"Unsupported format: {format_str}")
                     return False
                 
-                pixbuf_obj = Gdk.Pixbuf.new_from_bytes(
-                    pixbuf, Gdk.Colorspace.RGB, has_alpha, 8, width, height, rowstride
+                pixbuf_obj = GdkPixbuf.Pixbuf.new_from_bytes(
+                    pixbuf, GdkPixbuf.Colorspace.RGB, has_alpha, 8, width, height, rowstride
                 )
                 
                 # Store the pixbuf for freeze functionality
@@ -600,7 +624,13 @@ class DesktopLens(Gtk.Window):
         else:
             # Disable ghost mode: restore normal input region
             try:
-                window.input_shape_combine_region(None, 0, 0)
+                # Get screen dimensions to create full input region
+                screen = Gdk.Screen.get_default()
+                screen_width = screen.get_width()
+                screen_height = screen.get_height()
+                # Create a full region covering the entire window
+                full_region = cairo.Region(cairo.RectangleInt(0, 0, screen_width, screen_height))
+                window.input_shape_combine_region(full_region, 0, 0)
                 print("Ghost mode DISABLED - window accepts input")
                 if hasattr(self, 'ghost_button'):
                     self.ghost_button.set_label("Ghost: OFF")
