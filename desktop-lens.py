@@ -613,7 +613,8 @@ class DesktopLens(Gtk.Window):
     
     def init_global_hotkeys(self):
         """Initialize global hotkey listener using pynput"""
-        # Track currently pressed keys
+        # Track currently pressed keys (accessed from pynput thread)
+        # Using set operations which are atomic in CPython for thread safety
         self.current_keys = set()
         
         def on_press(key):
@@ -636,15 +637,11 @@ class DesktopLens(Gtk.Window):
         
         def on_release(key):
             """Handle key release events"""
-            try:
-                # Remove key from currently pressed set
-                self.current_keys.discard(key)
-            except Exception:
-                pass
+            # Remove key from currently pressed set (discard never raises exception)
+            self.current_keys.discard(key)
         
-        # Start keyboard listener in a daemon thread
-        self.keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-        self.keyboard_listener.daemon = True
+        # Start keyboard listener in a daemon thread (daemon must be set before start)
+        self.keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release, daemon=True)
         self.keyboard_listener.start()
         print("Global hotkey listener started (Ctrl+Alt+G or Ctrl+Alt+H to toggle Ghost Mode)")
     
