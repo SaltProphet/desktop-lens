@@ -120,16 +120,19 @@ class DesktopLens(Gtk.Window):
         if hw_type == "vaapi":
             vaapipostproc = Gst.ElementFactory.make("vaapipostproc", "hwscale")
             vaapipostproc.set_property("scale-method", 2)
+            videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
             self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
             self.appsink = Gst.ElementFactory.make("appsink", "sink")
             
             self.pipeline.add(self.src)
             self.pipeline.add(vaapipostproc)
+            self.pipeline.add(videoconvert)
             self.pipeline.add(self.capsfilter)
             self.pipeline.add(self.appsink)
             
             self.src.link(vaapipostproc)
-            vaapipostproc.link(self.capsfilter)
+            vaapipostproc.link(videoconvert)
+            videoconvert.link(self.capsfilter)
             self.capsfilter.link(self.appsink)
             self.videoscale = vaapipostproc
         elif hw_type == "gl":
@@ -145,18 +148,18 @@ class DesktopLens(Gtk.Window):
             self.pipeline.add(glupload)
             self.pipeline.add(glcolorconvert)
             self.pipeline.add(glscale)
-            self.pipeline.add(self.capsfilter)
             self.pipeline.add(gldownload)
             self.pipeline.add(videoconvert)
+            self.pipeline.add(self.capsfilter)
             self.pipeline.add(self.appsink)
             
             self.src.link(glupload)
             glupload.link(glcolorconvert)
             glcolorconvert.link(glscale)
-            glscale.link(self.capsfilter)
-            self.capsfilter.link(gldownload)
+            glscale.link(gldownload)
             gldownload.link(videoconvert)
-            videoconvert.link(self.appsink)
+            videoconvert.link(self.capsfilter)
+            self.capsfilter.link(self.appsink)
             self.videoscale = glscale
         else:
             videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
@@ -167,6 +170,7 @@ class DesktopLens(Gtk.Window):
             if not self.videoscale:
                 sys.exit("Failed to create videoscale element")
             self.videoscale.set_property("method", 3)
+            self.videoscale.set_property("add-borders", True)
                 
             self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
             if not self.capsfilter:
@@ -240,7 +244,7 @@ class DesktopLens(Gtk.Window):
         viewport_width = max(viewport_width, 320)
         viewport_height = max(viewport_height, 180)
         
-        caps_str = f"video/x-raw,width={viewport_width},height={viewport_height}"
+        caps_str = f"video/x-raw,format=RGBA,width={viewport_width},height={viewport_height}"
         caps = Gst.Caps.from_string(caps_str)
         
         self.capsfilter.set_property("caps", caps)
@@ -288,6 +292,8 @@ class DesktopLens(Gtk.Window):
             height = struct.get_value("height")
             format_str = struct.get_value("format")
             
+            print(f"Received sample: {width}x{height}, format={format_str}")
+            
             success, mapinfo = buffer.map(Gst.MapFlags.READ)
             if success:
                 pixbuf = GLib.Bytes.new(mapinfo.data)
@@ -306,6 +312,7 @@ class DesktopLens(Gtk.Window):
                     rowstride = width * 4
                     has_alpha = format_str in ("RGBA", "BGRA")
                 else:
+                    print(f"Unsupported format: {format_str}")
                     return False
                 
                 pixbuf_obj = Gdk.Pixbuf.new_from_bytes(
@@ -316,8 +323,10 @@ class DesktopLens(Gtk.Window):
                 if not self.frozen:
                     self.frozen_pixbuf = pixbuf_obj
                     self.image.set_from_pixbuf(pixbuf_obj)
+                    print(f"Image updated: {width}x{height}")
                 # If frozen, keep displaying the frozen image
-            except (GLib.Error, ValueError):
+            except (GLib.Error, ValueError) as e:
+                print(f"Error updating image: {e}")
                 pass
         return False
         
