@@ -17,6 +17,7 @@ class DesktopLens(Gtk.Window):
         self.init_gstreamer()
         self.init_ui()
         self.connect("delete-event", self.on_quit)
+        self.connect("destroy", self.on_destroy)
         
     def load_config(self):
         self.config = {"x": 0, "y": 0, "scale": 1.0}
@@ -39,6 +40,14 @@ class DesktopLens(Gtk.Window):
         except (IOError, OSError):
             pass
     
+    def detect_hw_acceleration(self):
+        """Detect available hardware acceleration elements"""
+        if Gst.ElementFactory.find("vaapipostproc"):
+            return "vaapi"
+        elif Gst.ElementFactory.find("glupload") and Gst.ElementFactory.find("glcolorconvert"):
+            return "gl"
+        return "software"
+    
     def init_gstreamer(self):
         Gst.init(None)
         self.pipeline = Gst.Pipeline.new("desktop-lens")
@@ -48,36 +57,87 @@ class DesktopLens(Gtk.Window):
             sys.exit("Failed to create ximagesrc element")
         self.src.set_property("use-damage", False)
         
-        videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
-        if not videoconvert:
-            sys.exit("Failed to create videoconvert element")
+        hw_type = self.detect_hw_acceleration()
+        
+        if hw_type == "vaapi":
+            vaapipostproc = Gst.ElementFactory.make("vaapipostproc", "hwscale")
+            vaapipostproc.set_property("scale-method", 2)
+            self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
+            self.appsink = Gst.ElementFactory.make("appsink", "sink")
             
-        self.videoscale = Gst.ElementFactory.make("videoscale", "scale")
-        if not self.videoscale:
-            sys.exit("Failed to create videoscale element")
+            self.pipeline.add(self.src)
+            self.pipeline.add(vaapipostproc)
+            self.pipeline.add(self.capsfilter)
+            self.pipeline.add(self.appsink)
             
-        self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
-        if not self.capsfilter:
-            sys.exit("Failed to create capsfilter element")
+            self.src.link(vaapipostproc)
+            vaapipostproc.link(self.capsfilter)
+            self.capsfilter.link(self.appsink)
+            self.videoscale = vaapipostproc
+        elif hw_type == "gl":
+            glupload = Gst.ElementFactory.make("glupload", "upload")
+            glcolorconvert = Gst.ElementFactory.make("glcolorconvert", "glconvert")
+            glscale = Gst.ElementFactory.make("glcolorscale", "glscale")
+            gldownload = Gst.ElementFactory.make("gldownload", "download")
+            videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
+            self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
+            self.appsink = Gst.ElementFactory.make("appsink", "sink")
             
-        self.appsink = Gst.ElementFactory.make("appsink", "sink")
-        if not self.appsink:
-            sys.exit("Failed to create appsink element")
+            self.pipeline.add(self.src)
+            self.pipeline.add(glupload)
+            self.pipeline.add(glcolorconvert)
+            self.pipeline.add(glscale)
+            self.pipeline.add(self.capsfilter)
+            self.pipeline.add(gldownload)
+            self.pipeline.add(videoconvert)
+            self.pipeline.add(self.appsink)
+            
+            self.src.link(glupload)
+            glupload.link(glcolorconvert)
+            glcolorconvert.link(glscale)
+            glscale.link(self.capsfilter)
+            self.capsfilter.link(gldownload)
+            gldownload.link(videoconvert)
+            videoconvert.link(self.appsink)
+            self.videoscale = glscale
+        else:
+            videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
+            if not videoconvert:
+                sys.exit("Failed to create videoconvert element")
+                
+            self.videoscale = Gst.ElementFactory.make("videoscale", "scale")
+            if not self.videoscale:
+                sys.exit("Failed to create videoscale element")
+            self.videoscale.set_property("method", 3)
+                
+            self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
+            if not self.capsfilter:
+                sys.exit("Failed to create capsfilter element")
+                
+            self.appsink = Gst.ElementFactory.make("appsink", "sink")
+            if not self.appsink:
+                sys.exit("Failed to create appsink element")
+            
+            self.pipeline.add(self.src)
+            self.pipeline.add(videoconvert)
+            self.pipeline.add(self.videoscale)
+            self.pipeline.add(self.capsfilter)
+            self.pipeline.add(self.appsink)
+            
+            self.src.link(videoconvert)
+            videoconvert.link(self.videoscale)
+            self.videoscale.link(self.capsfilter)
+            self.capsfilter.link(self.appsink)
         
         self.appsink.set_property("emit-signals", True)
         self.appsink.set_property("sync", False)
+        self.appsink.set_property("max-buffers", 1)
+        self.appsink.set_property("drop", True)
         self.appsink.connect("new-sample", self.on_new_sample)
         
-        self.pipeline.add(self.src)
-        self.pipeline.add(videoconvert)
-        self.pipeline.add(self.videoscale)
-        self.pipeline.add(self.capsfilter)
-        self.pipeline.add(self.appsink)
-        
-        self.src.link(videoconvert)
-        videoconvert.link(self.videoscale)
-        self.videoscale.link(self.capsfilter)
-        self.capsfilter.link(self.appsink)
+        bus = self.pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message", self.on_bus_message)
         
         self.scale_value = self.config["scale"]
         self.update_videoscale_caps()
@@ -96,6 +156,19 @@ class DesktopLens(Gtk.Window):
         
         self.capsfilter.set_property("caps", caps)
         
+    def on_bus_message(self, bus, message):
+        """Handle GStreamer bus messages to prevent UI freezes"""
+        t = message.type
+        if t == Gst.MessageType.ERROR:
+            err, debug = message.parse_error()
+            print(f"GStreamer Error: {err}, {debug}", file=sys.stderr)
+        elif t == Gst.MessageType.WARNING:
+            warn, debug = message.parse_warning()
+            print(f"GStreamer Warning: {warn}, {debug}", file=sys.stderr)
+        elif t == Gst.MessageType.EOS:
+            self.pipeline.set_state(Gst.State.NULL)
+        return True
+    
     def on_new_sample(self, sink):
         sample = sink.emit("pull-sample")
         if sample:
@@ -128,6 +201,7 @@ class DesktopLens(Gtk.Window):
     def init_ui(self):
         self.set_decorated(False)
         self.set_keep_above(True)
+        self.set_accept_focus(False)
         self.move(self.config["x"], self.config["y"])
         
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -150,9 +224,22 @@ class DesktopLens(Gtk.Window):
         
     def on_quit(self, *args):
         self.save_config()
-        self.pipeline.set_state(Gst.State.NULL)
+        self.cleanup_pipeline()
         Gtk.main_quit()
         return False
+    
+    def on_destroy(self, *args):
+        """Ensure proper cleanup on window destruction"""
+        self.cleanup_pipeline()
+    
+    def cleanup_pipeline(self):
+        """Properly clean up GStreamer resources to prevent leaks"""
+        if hasattr(self, 'pipeline') and self.pipeline:
+            bus = self.pipeline.get_bus()
+            if bus:
+                bus.remove_signal_watch()
+            self.pipeline.set_state(Gst.State.NULL)
+            self.pipeline = None
 
 if __name__ == "__main__":
     app = DesktopLens()
