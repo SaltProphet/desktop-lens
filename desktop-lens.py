@@ -21,7 +21,7 @@ IS_LINUX = platform.system() == 'Linux'
 
 # Platform-specific config file path
 if IS_WINDOWS:
-    config_dir = os.getenv('LOCALAPPDATA', os.path.expanduser('~/AppData/Local'))
+    config_dir = os.getenv('LOCALAPPDATA', os.path.join(os.path.expanduser('~'), 'AppData', 'Local'))
     CONFIG_FILE = os.path.join(config_dir, 'desktop-lens.json')
 else:
     CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
