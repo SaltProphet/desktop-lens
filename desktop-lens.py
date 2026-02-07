@@ -9,6 +9,7 @@ import os
 import sys
 import argparse
 import subprocess
+import cairo
 
 CONFIG_FILE = os.path.expanduser("~/.config/desktop-lens.json")
 
@@ -23,6 +24,7 @@ class DesktopLens(Gtk.Window):
         self.use_opacity_fallback = False  # Set to True if xid exclusion fails
         # Check if VideoOverlay mode should be used (set USE_VIDEO_OVERLAY=1 to enable)
         self.use_video_overlay = os.environ.get("USE_VIDEO_OVERLAY", "0") == "1"
+        self.ghost_mode = False  # Track ghost mode state
         self.load_config()
         self.init_gstreamer()
         self.init_ui()
@@ -63,7 +65,8 @@ class DesktopLens(Gtk.Window):
             "margin_right": 100,
             "crop_to_region": False,
             "capture_endx": 0,
-            "capture_endy": 0
+            "capture_endy": 0,
+            "ghost_mode": False,
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -71,6 +74,7 @@ class DesktopLens(Gtk.Window):
                     self.config.update(json.load(f))
             except (json.JSONDecodeError, IOError):
                 pass
+        self.ghost_mode = self.config.get("ghost_mode", False)
     
     def save_config(self):
         try:
@@ -86,6 +90,7 @@ class DesktopLens(Gtk.Window):
             self.config["crop_to_region"] = getattr(self, 'crop_to_region', False)
             self.config["capture_endx"] = getattr(self, 'capture_endx', 0)
             self.config["capture_endy"] = getattr(self, 'capture_endy', 0)
+            self.config["ghost_mode"] = self.ghost_mode
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(self.config, f, indent=2)
         except (IOError, OSError):
@@ -313,7 +318,7 @@ class DesktopLens(Gtk.Window):
         return True
     
     def on_window_realized(self, widget):
-        """Configure ximagesrc to avoid capturing this window and setup VideoOverlay if enabled"""
+        """Configure ximagesrc to avoid capturing this window and apply ghost mode if enabled"""
         # If using VideoOverlay mode, set the window handle
         if self.use_video_overlay and hasattr(self, 'videosink') and hasattr(self, 'drawing_area'):
             drawing_window = self.drawing_area.get_window()
@@ -337,6 +342,16 @@ class DesktopLens(Gtk.Window):
                 print("Note: XID exclusion may not be supported by your ximagesrc version or compositor")
                 # Fallback: Use opacity approach during capture
                 self.use_opacity_fallback = True
+            
+            # Apply ghost mode if it was enabled in config
+            if self.ghost_mode:
+                try:
+                    empty_region = cairo.Region()
+                    window.input_shape_combine_region(empty_region, 0, 0)
+                    print("Ghost mode restored from config")
+                except Exception as e:
+                    print(f"Failed to restore ghost mode: {e}")
+                    self.ghost_mode = False
     
     def on_new_sample(self, sink):
         # If frozen, don't update the image
@@ -412,7 +427,7 @@ class DesktopLens(Gtk.Window):
     def init_ui(self):
         self.set_decorated(False)
         self.set_keep_above(True)
-        self.set_accept_focus(True)  # Need to accept focus for keyboard shortcuts
+        self.set_accept_focus(False)  # Change from True to False - never steal focus
         self.move(self.config["x"], self.config["y"])
         
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -471,6 +486,13 @@ class DesktopLens(Gtk.Window):
         controls_box.pack_start(self.crop_button, False, False, 0)
         if self.crop_to_region:
             self.crop_button.set_label("Crop: ON")
+        
+        # Ghost Mode button (toggle click-through)
+        self.ghost_button = Gtk.Button(label="Ghost: OFF")
+        self.ghost_button.connect("clicked", self.on_toggle_ghost)
+        controls_box.pack_start(self.ghost_button, False, False, 0)
+        if self.ghost_mode:
+            self.ghost_button.set_label("Ghost: ON")
         
         vbox.pack_start(controls_box, False, False, 0)
         
@@ -551,13 +573,54 @@ class DesktopLens(Gtk.Window):
             self.crop_button.set_label("Crop: OFF")
             print("Disabled region cropping")
     
+    def toggle_ghost_mode(self):
+        """Toggle ghost mode (click-through window)"""
+        self.ghost_mode = not self.ghost_mode
+        
+        window = self.get_window()
+        if not window:
+            print("Window not realized yet")
+            return
+        
+        if self.ghost_mode:
+            # Enable ghost mode: make window click-through
+            try:
+                empty_region = cairo.Region()
+                window.input_shape_combine_region(empty_region, 0, 0)
+                print("Ghost mode ENABLED - window is now click-through")
+                if hasattr(self, 'ghost_button'):
+                    self.ghost_button.set_label("Ghost: ON")
+            except Exception as e:
+                print(f"Failed to enable ghost mode: {e}")
+                self.ghost_mode = False
+        else:
+            # Disable ghost mode: restore normal input region
+            try:
+                window.input_shape_combine_region(None, 0, 0)
+                print("Ghost mode DISABLED - window accepts input")
+                if hasattr(self, 'ghost_button'):
+                    self.ghost_button.set_label("Ghost: OFF")
+            except Exception as e:
+                print(f"Failed to disable ghost mode: {e}")
+    
+    def on_toggle_ghost(self, button):
+        """Handle ghost mode button click"""
+        self.toggle_ghost_mode()
+    
     def apply_margin_changes(self):
         """Helper method to apply margin changes"""
         self.update_viewport_layout()
         self.update_videoscale_caps()
     
     def on_key_press(self, widget, event):
-        """Handle keyboard shortcuts for margin adjustments"""
+        """Handle keyboard shortcuts for margin adjustments and ghost mode toggle"""
+        # Global hotkey: Ctrl+Alt+G or Ctrl+Alt+H to toggle ghost mode
+        if (event.state & Gdk.ModifierType.CONTROL_MASK and 
+            event.state & Gdk.ModifierType.MOD1_MASK):  # MOD1 is Alt
+            if event.keyval in (Gdk.KEY_g, Gdk.KEY_G, Gdk.KEY_h, Gdk.KEY_H):
+                self.toggle_ghost_mode()
+                return True
+        
         # Space key to toggle freeze
         if event.keyval == Gdk.KEY_space:
             self.on_toggle_freeze(None)
