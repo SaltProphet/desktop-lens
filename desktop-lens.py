@@ -24,7 +24,7 @@ class DesktopLens(Gtk.Window):
             try:
                 with open(CONFIG_FILE, 'r') as f:
                     self.config.update(json.load(f))
-            except:
+            except (json.JSONDecodeError, IOError):
                 pass
     
     def save_config(self):
@@ -45,6 +45,7 @@ class DesktopLens(Gtk.Window):
         
         videoconvert = Gst.ElementFactory.make("videoconvert", "convert")
         self.videoscale = Gst.ElementFactory.make("videoscale", "scale")
+        self.capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
         self.appsink = Gst.ElementFactory.make("appsink", "sink")
         
         self.appsink.set_property("emit-signals", True)
@@ -54,10 +55,13 @@ class DesktopLens(Gtk.Window):
         self.pipeline.add(self.src)
         self.pipeline.add(videoconvert)
         self.pipeline.add(self.videoscale)
+        self.pipeline.add(self.capsfilter)
         self.pipeline.add(self.appsink)
         
         self.src.link(videoconvert)
         videoconvert.link(self.videoscale)
+        self.videoscale.link(self.capsfilter)
+        self.capsfilter.link(self.appsink)
         
         self.scale_value = self.config["scale"]
         self.update_videoscale_caps()
@@ -72,8 +76,7 @@ class DesktopLens(Gtk.Window):
         caps_str = f"video/x-raw,width={width},height={height}"
         caps = Gst.Caps.from_string(caps_str)
         
-        self.videoscale.unlink(self.appsink)
-        self.videoscale.link_filtered(self.appsink, caps)
+        self.capsfilter.set_property("caps", caps)
         
     def on_new_sample(self, sink):
         sample = sink.emit("pull-sample")
@@ -100,7 +103,7 @@ class DesktopLens(Gtk.Window):
                     pixbuf, Gdk.Colorspace.RGB, False, 8, width, height, width * 3
                 )
                 self.image.set_from_pixbuf(pixbuf_obj)
-            except:
+            except (GLib.Error, ValueError):
                 pass
         return False
         
