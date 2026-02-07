@@ -334,7 +334,7 @@ class DesktopLens(Gtk.Window):
                 print(f"Set ximagesrc xid property to {xid} to exclude window from capture")
             except Exception as e:
                 print(f"Warning: Could not set xid property on ximagesrc: {e}")
-                print("Note: XID exclusion may not be supported by your compositor")
+                print("Note: XID exclusion may not be supported by your ximagesrc version or compositor")
                 # Fallback: Use opacity approach during capture
                 self.use_opacity_fallback = True
     
